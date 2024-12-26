@@ -159,7 +159,3 @@ impl Deployment {
         .format_hostname(box_domain)
     }
 }
-
-fn get_dbs_path(project_id: i64) -> PathBuf {
-    Path::new("sqlite").join(project_id.to_string())
-}

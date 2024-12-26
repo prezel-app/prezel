@@ -376,8 +376,10 @@ impl Listener for Arc<Container> {
 async fn is_online(host: &str) -> bool {
     let url = format!("http://{host}");
     let response = reqwest::get(url).await;
-    match response {
-        Ok(response) => response.status() == StatusCode::OK,
-        Err(_) => false,
-    }
+    // TODO: review if this is actually enough
+    response.is_ok()
+    // match response {
+    //     Ok(response) => response.status() == StatusCode::OK,
+    //     Err(_) => false,
+    // }
 }

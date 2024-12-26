@@ -41,10 +41,11 @@ impl DeploymentMap {
         }
     }
 
-    // TODO: turn this output into a stream maybe?
     pub(crate) fn iter_containers(&self) -> impl Stream<Item = Arc<Container>> + Send + '_ {
-        stream::iter(self.deployments.iter())
-            .flat_map(|(_, deployment)| deployment.iter_arc_containers())
+        let prod_dbs = self.dbs.values().map(|db| db.setup.container.clone());
+        let deployments = stream::iter(self.deployments.iter())
+            .flat_map(|(_, deployment)| deployment.iter_arc_containers());
+        stream::iter(prod_dbs).chain(deployments)
     }
 
     pub(crate) fn get_deployment(&self, project: &str, deployment: &str) -> Option<&Deployment> {

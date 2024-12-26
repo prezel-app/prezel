@@ -24,12 +24,15 @@ impl SqldContainer {
                 args: EnvVars::empty(),
                 host_files: vec![db_file.clone()],
                 env: [
-                    ("SQLD_HTTP_LISTEN_ADDR", "127.0.0.1:80"),
+                    ("SQLD_HTTP_LISTEN_ADDR", "0.0.0.0:80"),
                     ("SQLD_DB_PATH", "/tmp/db"),
                 ]
                 .as_ref() // FIXME: should not need this
                 .into(),
-                initial_status: ContainerStatus::Built, // TODO: maybe I need a different status for this? it's true that I can assume this is always build successfully
+                initial_status: ContainerStatus::StandBy {
+                    image: format!("ghcr.io/tursodatabase/libsql-server:v{VERSION}"),
+                    db_setup: None,
+                },
                 command: Some(command),
                 result: Some(BuildResult::Built),
             },
