@@ -10,10 +10,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - run: git status
-      - run: ls
+      - run: cat migrations/20240709152246_setup.sql
       - uses: actions/checkout@v4
-      - run: git status
+      - run: cat migrations/20240709152246_setup.sql
 
       - uses: actions-rs/toolchain@v1
         with:
