@@ -11,6 +11,7 @@ jobs:
         with:
           ref: main
       - run: git status
+      - run: ls
       - uses: actions/checkout@v4
       - run: git status
 
