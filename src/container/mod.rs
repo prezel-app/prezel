@@ -106,13 +106,14 @@ impl ContainerStatus {
         }
     }
 
-    pub(crate) fn get_db_container(&self) -> Option<Arc<Container>> {
-        let db_setup = match self {
+    // TODO: create get_db_container alternative and use it in all the appropriate places
+    // or maybe simply implement to_container for Option<SqliteDbSetup>
+    pub(crate) fn get_db_setup(&self) -> Option<SqliteDbSetup> {
+        match self {
             Self::StandBy { db_setup, .. } => db_setup.clone(),
             Self::Ready { db_setup, .. } => db_setup.clone(),
             Self::Queued { .. } | Self::Building | Self::Built | Self::Failed => None,
-        };
-        db_setup.map(|setup| setup.container)
+        }
     }
 }
 

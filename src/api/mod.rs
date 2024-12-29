@@ -7,7 +7,9 @@ use crate::{
     db::{BuildResult, Db, DeploymentWithProject, InsertProject, UpdateProject},
     deployments::{deployment::Deployment, manager::Manager},
     github::Github,
+    label::Label,
     logging::{Level, Log},
+    sqlite_db::SqliteDbSetup,
 };
 
 mod apps;
@@ -37,7 +39,7 @@ pub(crate) const API_PORT: u16 = 5045;
         deployments::get_deployment_logs,
         deployments::get_deployment_build_logs
     ),
-    components(schemas(ProjectInfo, FullProjectInfo, ErrorResponse, UpdateProject, Repository, ApiDeployment, Log, Level, Status, InsertProject)),
+    components(schemas(ProjectInfo, FullProjectInfo, ErrorResponse, UpdateProject, Repository, ApiDeployment, Log, Level, Status, InsertProject, LibsqlDb)),
     tags(
         (name = "prezel", description = "Prezel management endpoints.")
     ),
@@ -129,6 +131,39 @@ impl ToString for Status {
 }
 
 #[derive(Serialize, ToSchema)]
+struct LibsqlDb {
+    url: String,
+    token: String,
+}
+
+impl LibsqlDb {
+    fn new(
+        db_setup: SqliteDbSetup,
+        deployment_url_id: Option<String>,
+        box_domain: &str,
+        project_name: &str,
+    ) -> Self {
+        let url = if let Some(url_id) = deployment_url_id {
+            Label::BranchDb {
+                project: project_name.to_string(),
+                deployment: url_id,
+            }
+        } else {
+            Label::ProdDb {
+                project: project_name.to_string(),
+            }
+        }
+        .format_hostname(box_domain)
+        .plus_https();
+
+        Self {
+            url,
+            token: db_setup.auth.token,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
 #[schema(title = "Deployment")]
 struct ApiDeployment {
     id: i64,
@@ -140,7 +175,7 @@ struct ApiDeployment {
     url: Option<String>,
     target_url: Option<String>,
     custom_urls: Vec<String>,
-    db_url: Option<String>,
+    libsql_db: Option<LibsqlDb>,
     status: Status,
     app_container: Option<String>,
     // execution_logs: Vec<DockerLog>,
@@ -157,34 +192,50 @@ impl ApiDeployment {
         db_deployment: &DeploymentWithProject,
         is_prod: bool,
         box_domain: &str,
+        manager: &Manager,
     ) -> Self {
-        let (status, url, prod_url, custom_urls, db_url, app_container) = if let Some(deployment) =
-            deployment
-        {
-            let status = deployment.app_container.status.read().await.to_status();
+        let (status, url, prod_url, custom_urls, app_container, libsql_db) =
+            if let Some(deployment) = deployment {
+                let container_status = deployment.app_container.status.read().await;
+                let status = container_status.to_status();
 
-            let project_name = &db_deployment.project.name;
-            let url = Some(deployment.get_app_hostname(box_domain, project_name)).plus_https();
-            let db_url = Some(deployment.get_db_hostname(box_domain, project_name)).plus_https();
-            let prod_url = is_prod
-                .then_some(deployment.get_prod_hostname(box_domain, project_name))
-                .plus_https();
-            let custom_urls = if is_prod {
-                db_deployment.project.custom_domains.plus_https()
+                let project_name = &db_deployment.project.name;
+                let url = Some(deployment.get_app_hostname(box_domain, project_name)).plus_https();
+                let prod_url = is_prod
+                    .then_some(deployment.get_prod_hostname(box_domain, project_name))
+                    .plus_https();
+                let custom_urls = if is_prod {
+                    db_deployment.project.custom_domains.plus_https()
+                } else {
+                    vec![]
+                };
+
+                let app_container = deployment.app_container.get_container_id().await;
+
+                let libsql_db = if is_prod {
+                    let prod_db = manager.get_prod_db(deployment.project).await;
+                    prod_db.map(|setup| LibsqlDb::new(setup, None, box_domain, project_name))
+                } else {
+                    let branch_db = container_status.get_db_setup();
+                    branch_db.map(|setup| {
+                        LibsqlDb::new(
+                            setup,
+                            Some(deployment.url_id.clone()),
+                            box_domain,
+                            project_name,
+                        )
+                    })
+                };
+
+                (status, url, prod_url, custom_urls, app_container, libsql_db)
             } else {
-                vec![]
+                let status = match db_deployment.result {
+                    Some(BuildResult::Failed) => Status::Failed,
+                    Some(BuildResult::Built) => Status::Built,
+                    None => Status::Queued,
+                };
+                (status, None, None, vec![], None, None)
             };
-
-            let app_container = deployment.app_container.get_container_id().await;
-            (status, url, prod_url, custom_urls, db_url, app_container)
-        } else {
-            let status = match db_deployment.result {
-                Some(BuildResult::Failed) => Status::Failed,
-                Some(BuildResult::Built) => Status::Built,
-                None => Status::Queued,
-            };
-            (status, None, None, vec![], None, None)
-        };
 
         // TODO: I should have a nested struct for the container related
         // info so it can be an option as a whole
@@ -197,7 +248,7 @@ impl ApiDeployment {
             url, // TODO: add method to get the http version from the same object !!!
             target_url: prod_url,
             custom_urls,
-            db_url,
+            libsql_db,
             status,
             app_container,
             created: db_deployment.created,

@@ -12,7 +12,7 @@ const VERSION: &str = "0.24.28";
 pub(crate) struct SqldContainer;
 
 impl SqldContainer {
-    pub(crate) fn new(db_file: HostFile, build_queue: WorkerHandle) -> Container {
+    pub(crate) fn new(db_file: HostFile, key: &str, build_queue: WorkerHandle) -> Container {
         let builder = Self {};
 
         let db_path = db_file.get_container_file().display().to_string();
@@ -26,6 +26,7 @@ impl SqldContainer {
                 env: [
                     ("SQLD_HTTP_LISTEN_ADDR", "0.0.0.0:80"),
                     ("SQLD_DB_PATH", "/tmp/db"),
+                    ("SQLD_AUTH_JWT_KEY", key),
                 ]
                 .as_ref() // FIXME: should not need this
                 .into(),

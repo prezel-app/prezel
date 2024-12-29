@@ -10,7 +10,7 @@ use crate::{
     container::{Container, ContainerStatus},
     db::{BuildResult, Db},
     github::Github,
-    sqlite_db::ProdSqliteDb,
+    sqlite_db::{ProdSqliteDb, SqliteDbSetup},
     tls::CertificateStore,
 };
 
@@ -63,11 +63,13 @@ impl DeploymentMap {
         self.get_prod_from_id(*project_id)
     }
 
-    pub(crate) fn get_prod_db(&self, project: &str) -> Option<Arc<Container>> {
-        let project_id = self.names.get(project)?;
-        self.dbs
-            .get(project_id)
-            .map(|db| db.setup.container.clone())
+    pub(crate) fn get_prod_db(&self, id: i64) -> Option<SqliteDbSetup> {
+        self.dbs.get(&id).map(|db| db.setup.clone())
+    }
+
+    pub(crate) fn get_prod_db_by_name(&self, project: &str) -> Option<SqliteDbSetup> {
+        let id = self.names.get(project)?;
+        self.get_prod_db(*id)
     }
 
     pub(crate) fn get_custom_domain(&self, domain: &str) -> Option<&Deployment> {
@@ -278,7 +280,8 @@ impl DeploymentMap {
                     .status
                     .read()
                     .await
-                    .get_db_container()
+                    .get_db_setup()
+                    .map(|setup| setup.container.clone())
             });
 
         all_containers_from_non_prod_deployments

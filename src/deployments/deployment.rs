@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -9,6 +8,7 @@ use crate::container::commit::CommitContainer;
 use crate::container::ContainerStatus;
 use crate::db::{BuildResult, Deployment as DbDeployment};
 use crate::deployment_hooks::StatusHooks;
+use crate::label::Label;
 use crate::sqlite_db::ProdSqliteDb;
 use crate::{
     container::Container,
@@ -16,7 +16,6 @@ use crate::{
     github::Github,
 };
 
-use super::label::Label;
 use super::worker::WorkerHandle;
 
 #[derive(Debug)]
@@ -29,9 +28,6 @@ pub(crate) struct Deployment {
     pub(crate) url_id: String,
     pub(crate) timestamp: i64,
     pub(crate) created: i64,
-    // pub(crate) target_hostname: String,
-    // pub(crate) deployment_hostname: String,
-    // pub(crate) prisma_hostname: String,
     pub(crate) forced_prod: bool, // TODO: review if im using this
     pub(crate) app_container: Arc<Container>, // FIXME: try to remove Arc, only needed to make access to socket/public generic
                                               // pub(crate) prisma_container: Arc<Container>,
@@ -54,7 +50,14 @@ impl Deployment {
 
         let containers: [Pin<Box<dyn Future<Output = Option<Arc<Container>>> + Send>>; 2] = [
             Box::pin(async { Some(self.app_container.clone()) }),
-            Box::pin(async { self.app_container.status.read().await.get_db_container() }),
+            Box::pin(async {
+                self.app_container
+                    .status
+                    .read()
+                    .await
+                    .get_db_setup()
+                    .map(|setup| setup.container.clone())
+            }),
         ];
         stream::iter(containers).filter_map(|container| container)
     }

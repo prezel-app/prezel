@@ -3,6 +3,11 @@ use std::{
     sync::Arc,
 };
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use jsonwebtoken::{DecodingKey, EncodingKey};
+use ring::signature::{Ed25519KeyPair, KeyPair};
+use serde::Serialize;
+
 use crate::{
     container::{sqld::SqldContainer, Container},
     deployments::worker::WorkerHandle,
@@ -28,10 +33,15 @@ impl ProdSqliteDb {
             std::fs::File::create_new(&main_db_path)?;
         }
 
-        let container = SqldContainer::new(file.clone(), build_queue.clone()).into();
+        let auth = SqldAuth::generate();
+        let container = SqldContainer::new(file.clone(), &auth.key, build_queue.clone()).into();
 
         Ok(Self {
-            setup: SqliteDbSetup { file, container },
+            setup: SqliteDbSetup {
+                file,
+                container,
+                auth,
+            },
             project_folder,
             build_queue,
         })
@@ -41,7 +51,6 @@ impl ProdSqliteDb {
         let path = self.project_folder.join(deployment_id.to_string());
         let branch_file = HostFile::new(path, "preview.db");
         BranchSqliteDb {
-            project_folder: self.project_folder.clone(),
             base_file: self.setup.file.clone(),
             branch_file,
             build_queue: self.build_queue.clone(),
@@ -51,7 +60,6 @@ impl ProdSqliteDb {
 
 #[derive(Debug, Clone)]
 pub(crate) struct BranchSqliteDb {
-    project_folder: PathBuf,
     base_file: HostFile,
     pub(crate) branch_file: HostFile,
     build_queue: WorkerHandle,
@@ -64,11 +72,17 @@ impl BranchSqliteDb {
             self.branch_file.get_container_file(),
         )
         .await?;
-        let container =
-            SqldContainer::new(self.branch_file.clone(), self.build_queue.clone()).into();
+        let auth = SqldAuth::generate();
+        let container = SqldContainer::new(
+            self.branch_file.clone(),
+            &auth.key,
+            self.build_queue.clone(),
+        )
+        .into();
         Ok(SqliteDbSetup {
             file: self.branch_file.clone(),
             container,
+            auth,
         })
     }
 }
@@ -77,4 +91,48 @@ impl BranchSqliteDb {
 pub(crate) struct SqliteDbSetup {
     pub(crate) file: HostFile,
     pub(crate) container: Arc<Container>,
+    pub(crate) auth: SqldAuth,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SqldAuth {
+    pub(crate) token: String,
+    key: String,
+}
+
+impl SqldAuth {
+    fn generate() -> Self {
+        let doc = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
+        let encoding_key = EncodingKey::from_ed_der(doc.as_ref());
+        let pair = Ed25519KeyPair::from_pkcs8(doc.as_ref()).unwrap();
+        let key = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+
+        let token = Token {
+            id: None,
+            a: None,
+            p: None,
+            exp: None,
+        };
+        let token = encode(&token, &encoding_key);
+
+        Self { key, token }
+    }
+}
+
+// usize is not the actual type accepted by sqld. Have a look at libsql repo for more info
+#[derive(serde::Deserialize, serde::Serialize, Debug, Default)]
+pub struct Token {
+    #[serde(default)]
+    id: Option<usize>,
+    #[serde(default)]
+    a: Option<usize>,
+    #[serde(default)]
+    pub(crate) p: Option<usize>,
+    #[serde(default)]
+    exp: Option<usize>,
+}
+
+fn encode<T: Serialize>(claims: &T, key: &EncodingKey) -> String {
+    let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA);
+    jsonwebtoken::encode(&header, &claims, key).unwrap()
 }

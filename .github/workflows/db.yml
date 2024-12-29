@@ -1,0 +1,24 @@
+# name: ci
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Re-create old db
+        run: |
+          DATABASE_URL=sqlite:/tmp/old-db cargo sqlx database create
+
+      - uses: actions/checkout@v4
+      - name: Run new migrations
+        run: |
+          DATABASE_URL=sqlite:/tmp/old-db cargo sqlx migrate run
