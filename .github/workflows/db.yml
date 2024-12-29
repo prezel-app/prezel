@@ -10,15 +10,12 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+      - run: cargo install sqlx-cli
 
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Re-create old db
-        run: |
-          DATABASE_URL=sqlite:/tmp/old-db cargo sqlx database create
+      - run: DATABASE_URL=sqlite:/tmp/old-db cargo sqlx database create
 
       - uses: actions/checkout@v4
-      - name: Run new migrations
-        run: |
-          DATABASE_URL=sqlite:/tmp/old-db cargo sqlx migrate run
+      - run: DATABASE_URL=sqlite:/tmp/old-db cargo sqlx migrate run
