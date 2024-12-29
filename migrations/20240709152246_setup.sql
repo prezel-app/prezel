@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS deployments (
     created INTEGER NOT NULL,
     env TEXT NOT NULL,
     sha TEXT NOT NULL,
-    branch TEXT NOT NULL,
+    branch TEXT NOT NULL
     default_branch INTEGER NOT NULL, -- 0 false 1 true
     build_started INTEGER,
     build_finished INTEGER,
