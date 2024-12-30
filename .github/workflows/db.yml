@@ -14,6 +14,7 @@ jobs:
         with:
           ref: main
       - run: DATABASE_URL=sqlite:/tmp/old-db sqlx database create
+      - run: DATABASE_URL=sqlite:/tmp/old-db sqlx migrate run
 
       - uses: actions/checkout@v4
       - run: DATABASE_URL=sqlite:/tmp/old-db sqlx migrate run
