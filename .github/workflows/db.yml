@@ -16,6 +16,6 @@ jobs:
       - run: DATABASE_URL=sqlite:/tmp/old-db sqlx database create
 
       - uses: actions/checkout@v4
-      - run: DATABASE_URL=sqlite:/tmp/old-db2 sqlx migrate run
+      - run: DATABASE_URL=sqlite:/tmp/old-db sqlx migrate run
 
       - run: cargo build
