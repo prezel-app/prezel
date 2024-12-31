@@ -80,6 +80,9 @@ tracing-subscriber = { version = "0.3.0", default-features = false, features = [
     # "json",       # TODO check this
     # "env-filter", # TODO check this
 ] }
+base64 = "0.22.1"
+jsonwebtoken = "9.3.0"
+ring = "0.17.8"
 
 
 [dev-dependencies]

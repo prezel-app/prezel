@@ -1,0 +1,22 @@
+on:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: cargo install --version 0.7.4 sqlx-cli
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: DATABASE_URL=sqlite:/tmp/old-db sqlx database create
+      - run: DATABASE_URL=sqlite:/tmp/old-db sqlx migrate run
+
+      - uses: actions/checkout@v4
+      - run: DATABASE_URL=sqlite:/tmp/old-db sqlx migrate run
+
+      - run: cargo build

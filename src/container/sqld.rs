@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::{
     deployment_hooks::NoopHooks, deployments::worker::WorkerHandle, env::EnvVars, paths::HostFile,
 };
@@ -12,7 +10,7 @@ const VERSION: &str = "0.24.28";
 pub(crate) struct SqldContainer;
 
 impl SqldContainer {
-    pub(crate) fn new(db_file: HostFile, build_queue: WorkerHandle) -> Container {
+    pub(crate) fn new(db_file: HostFile, key: &str, build_queue: WorkerHandle) -> Container {
         let builder = Self {};
 
         let db_path = db_file.get_container_file().display().to_string();
@@ -21,15 +19,19 @@ impl SqldContainer {
         Container::new(
             builder,
             ContainerConfig {
-                args: EnvVars::empty(),
                 host_files: vec![db_file.clone()],
+                pull: true,
                 env: [
-                    ("SQLD_HTTP_LISTEN_ADDR", "127.0.0.1:80"),
+                    ("SQLD_HTTP_LISTEN_ADDR", "0.0.0.0:80"),
                     ("SQLD_DB_PATH", "/tmp/db"),
+                    ("SQLD_AUTH_JWT_KEY", key),
                 ]
                 .as_ref() // FIXME: should not need this
                 .into(),
-                initial_status: ContainerStatus::Built, // TODO: maybe I need a different status for this? it's true that I can assume this is always build successfully
+                initial_status: ContainerStatus::StandBy {
+                    image: format!("ghcr.io/tursodatabase/libsql-server:v{VERSION}"),
+                    db_setup: None,
+                },
                 command: Some(command),
                 result: Some(BuildResult::Built),
             },

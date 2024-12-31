@@ -52,12 +52,14 @@ pub(crate) async fn run_api_server(
     info!("Prezel API service listening at {base_url}");
     info!("Docs available at {base_url}/docs");
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allowed_origin(&coordinator_hostname)
-            .allowed_origin(localhost)
-            .allow_any_method()
-            .allow_any_header()
-            .max_age(3600);
+        let cors = Cors::permissive();
+        // .allowed_origin(&coordinator_hostname) // TODO: review if I should enable this
+        // .allowed_origin("https://libsqlstudio.com")
+        // .allowed_origin(localhost)
+        // .allow_any_method()
+        // .allow_any_header()
+        // .max_age(3600);
+        // .max_age(1);
         // This factory closure is called on each worker thread independently.
         App::new()
             .wrap(Logger::default())

@@ -20,7 +20,7 @@ use crate::{
     deployments::worker::WorkerHandle,
     docker::{
         build_dockerfile, create_container, get_bollard_container_ipv4,
-        get_container_execution_logs, run_container, DockerLog,
+        get_container_execution_logs, pull_image, run_container, DockerLog,
     },
     env::EnvVars,
     listener::{Access, Listener},
@@ -34,7 +34,7 @@ pub(crate) mod sqld;
 #[derive(Debug)]
 pub(crate) struct ContainerConfig {
     pub(crate) env: EnvVars,
-    pub(crate) args: EnvVars,
+    pub(crate) pull: bool,
     pub(crate) host_files: Vec<HostFile>,
     pub(crate) command: Option<String>,
     pub(crate) initial_status: ContainerStatus,
@@ -106,13 +106,14 @@ impl ContainerStatus {
         }
     }
 
-    pub(crate) fn get_db_container(&self) -> Option<Arc<Container>> {
-        let db_setup = match self {
+    // TODO: create get_db_container alternative and use it in all the appropriate places
+    // or maybe simply implement to_container for Option<SqliteDbSetup>
+    pub(crate) fn get_db_setup(&self) -> Option<SqliteDbSetup> {
+        match self {
             Self::StandBy { db_setup, .. } => db_setup.clone(),
             Self::Ready { db_setup, .. } => db_setup.clone(),
             Self::Queued { .. } | Self::Building | Self::Built | Self::Failed => None,
-        };
-        db_setup.map(|setup| setup.container)
+        }
     }
 }
 
@@ -259,6 +260,9 @@ impl Container {
     pub(crate) async fn start(&self) -> anyhow::Result<SocketAddrV4> {
         let cloned_status = self.status.read().await.clone();
         if let ContainerStatus::StandBy { image, db_setup } = cloned_status {
+            if self.config.pull {
+                pull_image(&image).await;
+            }
             let container = create_container(
                 image.clone(),
                 self.config.env.clone(),
@@ -376,8 +380,10 @@ impl Listener for Arc<Container> {
 async fn is_online(host: &str) -> bool {
     let url = format!("http://{host}");
     let response = reqwest::get(url).await;
-    match response {
-        Ok(response) => response.status() == StatusCode::OK,
-        Err(_) => false,
-    }
+    // TODO: review if this is actually enough
+    response.is_ok()
+    // match response {
+    //     Ok(response) => response.status() == StatusCode::OK,
+    //     Err(_) => false,
+    // }
 }

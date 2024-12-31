@@ -134,6 +134,7 @@ impl ProxyHttp for ProxyApp {
         // let listener = self.get_listener(session).await?.listener;
         if listener.is_public() || self.is_authenticated(session) {
             let access = listener.access().await.map_err(|error| {
+                dbg!(&error);
                 Error::create(
                     Custom("Failed to aquire socket"),
                     ErrorSource::Unset, // FIXME: is this correct ??
@@ -185,16 +186,25 @@ impl ProxyHttp for ProxyApp {
 
     async fn response_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<()>
     where
         Self::CTX: Send + Sync,
     {
-        upstream_response
-            .insert_header("Access-Control-Allow-Origin", &self.config.coordinator)
-            .unwrap();
+        let origin = session.get_header(header::ORIGIN);
+        let console =
+            origin.is_some_and(|header| header.to_str().unwrap() == self.config.coordinator);
+
+        if console {
+            upstream_response
+                .insert_header(
+                    header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                    &self.config.coordinator,
+                )
+                .unwrap();
+        }
         Ok(())
     }
 

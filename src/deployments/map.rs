@@ -10,7 +10,7 @@ use crate::{
     container::{Container, ContainerStatus},
     db::{BuildResult, Db},
     github::Github,
-    sqlite_db::ProdSqliteDb,
+    sqlite_db::{ProdSqliteDb, SqliteDbSetup},
     tls::CertificateStore,
 };
 
@@ -41,10 +41,11 @@ impl DeploymentMap {
         }
     }
 
-    // TODO: turn this output into a stream maybe?
     pub(crate) fn iter_containers(&self) -> impl Stream<Item = Arc<Container>> + Send + '_ {
-        stream::iter(self.deployments.iter())
-            .flat_map(|(_, deployment)| deployment.iter_arc_containers())
+        let prod_dbs = self.dbs.values().map(|db| db.setup.container.clone());
+        let deployments = stream::iter(self.deployments.iter())
+            .flat_map(|(_, deployment)| deployment.iter_arc_containers());
+        stream::iter(prod_dbs).chain(deployments)
     }
 
     pub(crate) fn get_deployment(&self, project: &str, deployment: &str) -> Option<&Deployment> {
@@ -62,11 +63,13 @@ impl DeploymentMap {
         self.get_prod_from_id(*project_id)
     }
 
-    pub(crate) fn get_prod_db(&self, project: &str) -> Option<Arc<Container>> {
-        let project_id = self.names.get(project)?;
-        self.dbs
-            .get(project_id)
-            .map(|db| db.setup.container.clone())
+    pub(crate) fn get_prod_db(&self, id: i64) -> Option<SqliteDbSetup> {
+        self.dbs.get(&id).map(|db| db.setup.clone())
+    }
+
+    pub(crate) fn get_prod_db_by_name(&self, project: &str) -> Option<SqliteDbSetup> {
+        let id = self.names.get(project)?;
+        self.get_prod_db(*id)
     }
 
     pub(crate) fn get_custom_domain(&self, domain: &str) -> Option<&Deployment> {
@@ -277,7 +280,8 @@ impl DeploymentMap {
                     .status
                     .read()
                     .await
-                    .get_db_container()
+                    .get_db_setup()
+                    .map(|setup| setup.container.clone())
             });
 
         all_containers_from_non_prod_deployments

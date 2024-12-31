@@ -7,7 +7,7 @@ use bollard::{
         NetworkingConfig, StartContainerOptions,
     },
     errors::Error as DockerError,
-    image::BuildImageOptions,
+    image::{BuildImageOptions, CreateImageOptions},
     secret::{BuildInfo, HostConfig},
     Docker as BollardDoker,
 };
@@ -116,6 +116,21 @@ fn parse_message(message: Bytes) -> Option<(i64, String)> {
     let millis = datetime.timestamp_millis();
 
     Some((millis, content.to_owned()))
+}
+
+pub(crate) async fn pull_image(image: &str) {
+    let docker = docker_client();
+    docker
+        .create_image(
+            Some(CreateImageOptions {
+                from_image: image,
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
+        .count() // is this really the most appropriate option?
+        .await;
 }
 
 // #[tracing::instrument]

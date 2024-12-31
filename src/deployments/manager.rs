@@ -3,11 +3,13 @@ use std::{backtrace::Backtrace, sync::Arc, time::Duration};
 use futures::{stream, StreamExt};
 use tokio::sync::{RwLock, RwLockReadGuard};
 
-use crate::{container::Container, db::Db, github::Github, time::now, tls::CertificateStore};
+use crate::{
+    container::Container, db::Db, github::Github, label::Label, sqlite_db::SqliteDbSetup,
+    time::now, tls::CertificateStore,
+};
 
 use super::{
     deployment::Deployment,
-    label::Label,
     map::DeploymentMap,
     worker::{Worker, WorkerHandle},
     workers::{build::BuildWorker, docker::DockerWorker, github::GithubWorker},
@@ -126,9 +128,15 @@ impl Manager {
             } => {
                 let deployment = map.get_deployment(project, deployment)?;
                 let status = &deployment.app_container.status;
-                status.read().await.get_db_container()
+                status
+                    .read()
+                    .await
+                    .get_db_setup()
+                    .map(|setup| setup.container.clone())
             }
-            Label::ProdDb { project } => map.get_prod_db(project),
+            Label::ProdDb { project } => map
+                .get_prod_db_by_name(project)
+                .map(|setup| setup.container.clone()),
         }
     }
 
@@ -156,6 +164,11 @@ impl Manager {
             map.deployments.get(&(project, prod_id.to_owned()))
         })
         .ok()
+    }
+
+    #[tracing::instrument]
+    pub(crate) async fn get_prod_db(&self, project: i64) -> Option<SqliteDbSetup> {
+        self.deployments.read().await.get_prod_db(project)
     }
 
     #[tracing::instrument]

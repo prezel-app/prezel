@@ -12,9 +12,11 @@ mod deployments;
 mod docker;
 mod env;
 mod github;
+mod label;
 mod listener;
 mod logging;
 mod paths;
+mod sqlite_db;
 mod time;
 mod tls;
 

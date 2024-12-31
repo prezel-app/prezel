@@ -27,6 +27,7 @@ pub(super) async fn get_prod_deployment(
             &db_deployment,
             is_prod,
             box_domain,
+            &manager,
         )
         .await,
     )
@@ -50,8 +51,14 @@ pub(super) async fn get_all_deployments(
                 } else {
                     false
                 };
-                ApiDeployment::from(deployment.as_deref(), &db_deployment, is_prod, box_domain)
-                    .await
+                ApiDeployment::from(
+                    deployment.as_deref(),
+                    &db_deployment,
+                    is_prod,
+                    box_domain,
+                    &manager,
+                )
+                .await
             })
             .collect()
             .await;

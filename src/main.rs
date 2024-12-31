@@ -19,6 +19,7 @@ mod docker;
 mod docker_bridge;
 mod env;
 mod github;
+mod label;
 mod listener;
 mod logging;
 mod paths;
