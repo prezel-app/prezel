@@ -20,7 +20,7 @@ use crate::{
     deployments::worker::WorkerHandle,
     docker::{
         build_dockerfile, create_container, get_bollard_container_ipv4,
-        get_container_execution_logs, run_container, DockerLog,
+        get_container_execution_logs, pull_image, run_container, DockerLog,
     },
     env::EnvVars,
     listener::{Access, Listener},
@@ -34,7 +34,7 @@ pub(crate) mod sqld;
 #[derive(Debug)]
 pub(crate) struct ContainerConfig {
     pub(crate) env: EnvVars,
-    pub(crate) args: EnvVars,
+    pub(crate) pull: bool,
     pub(crate) host_files: Vec<HostFile>,
     pub(crate) command: Option<String>,
     pub(crate) initial_status: ContainerStatus,
@@ -260,6 +260,9 @@ impl Container {
     pub(crate) async fn start(&self) -> anyhow::Result<SocketAddrV4> {
         let cloned_status = self.status.read().await.clone();
         if let ContainerStatus::StandBy { image, db_setup } = cloned_status {
+            if self.config.pull {
+                pull_image(&image).await;
+            }
             let container = create_container(
                 image.clone(),
                 self.config.env.clone(),

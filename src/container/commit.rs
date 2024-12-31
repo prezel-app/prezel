@@ -14,7 +14,6 @@ use crate::{
     deployment_hooks::StatusHooks,
     env::EnvVars,
     github::Github,
-    paths::HostFile,
     sqlite_db::{BranchSqliteDb, ProdSqliteDb},
 };
 
@@ -61,8 +60,10 @@ impl CommitContainer {
         };
         let db_path = db_file.get_container_file();
         let db_path_str = db_path.to_str().unwrap();
+        let db_url = format!("file:{db_path_str}");
         let default_env = [
-            (DB_PATH_ENV_NAME, format!("file:{db_path_str}").as_str()),
+            (DB_PATH_ENV_NAME, db_url.as_str()),
+            ("ASTRO_DB_REMOTE_URL", db_url.as_str()),
             ("HOST", "0.0.0.0"),
             ("PORT", "80"),
         ]
@@ -82,9 +83,9 @@ impl CommitContainer {
         Container::new(
             builder,
             ContainerConfig {
-                args: extended_env.clone(),
                 host_files: vec![db_file],
                 env: extended_env,
+                pull: false,
                 initial_status,
                 command: None,
                 result,

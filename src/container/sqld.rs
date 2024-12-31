@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::{
     deployment_hooks::NoopHooks, deployments::worker::WorkerHandle, env::EnvVars, paths::HostFile,
 };
@@ -21,8 +19,8 @@ impl SqldContainer {
         Container::new(
             builder,
             ContainerConfig {
-                args: EnvVars::empty(),
                 host_files: vec![db_file.clone()],
+                pull: true,
                 env: [
                     ("SQLD_HTTP_LISTEN_ADDR", "0.0.0.0:80"),
                     ("SQLD_DB_PATH", "/tmp/db"),
