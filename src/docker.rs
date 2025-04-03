@@ -202,7 +202,7 @@ pub(crate) async fn create_container_with_explicit_binds(
             },
         )
         .await?;
-    Ok(response)
+    Ok(response.id)
 }
 
 #[tracing::instrument]
