@@ -1,66 +1,75 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Loading...</title>
-        <style>
-            body {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                margin: 0;
-                font-family: Arial, sans-serif;
-                /* background-color: #f0f0f0; */
-                background-color: black;
-                color: white;
-            }
-            .container {
-                text-align: center;
-            }
-            .spinner {
-                margin: 0 auto;
-                border: 4px solid rgba(0, 0, 0, 0.1);
-                border-left-color: white;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin-top: 20px;
-            }
-            @keyframes spin {
-                to {
-                    transform: rotate(360deg);
-                }
-            }
-        </style>
-    </head>
-    <script>
-        window.onload = function () {
-            const hostname = window.location.origin;
-            document.getElementById("hostname").innerText = hostname;
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Loading...</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background-color: black;
+        color: white;
+        font-size: 1.2rem;
+      }
+      .container {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .spinner {
+        margin: 0 auto;
+        border: 4px solid rgba(0, 0, 0, 0.1);
+        border-left-color: white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin-top: 20px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <script>
+    window.onload = function () {
+      const hostname = window.location.hostname;
+      document.getElementById("hostname").innerText = hostname;
 
-            // Periodic fetch request
-            setInterval(() => {
-                fetch("/", { method: "HEAD" })
-                    .then((response) => {
-                        if (!response.headers.has("Prezel-Loading")) {
-                            window.location.reload();
-                        }
-                    })
-                    .catch((error) => {
-                        console.error("Error fetching data:", error);
-                    });
-            }, 5000); // Fetch every 5 seconds
-        };
-    </script>
-    <body>
-        <div class="container">
-            <h1>
-                Loading deployment for hostname: <span id="hostname"></span>
-            </h1>
-            <div class="spinner"></div>
-        </div>
-    </body>
+      // Periodic fetch request
+      setInterval(() => {
+        fetch("/", { method: "HEAD" })
+          .then((response) => {
+            if (!response.headers.has("Prezel-Loading")) {
+              window.location.reload();
+            }
+          })
+          .catch((error) => {
+            console.error("Error fetching data:", error);
+          });
+      }, 5000); // Fetch every 5 seconds
+    };
+  </script>
+  <body>
+    <div class="container">
+      <img
+        style="height: 45px; filter: invert(1); margin-bottom: 64px"
+        src="http://prezel.app/big-logo"
+        alt="Prezel Homepage"
+      />
+      <span style="opacity: 70%; margin-bottom: 12px">
+        Loading container for
+      </span>
+      <span id="hostname"></span>
+      <div class="spinner"></div>
+    </div>
+  </body>
 </html>
