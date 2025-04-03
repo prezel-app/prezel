@@ -1,12 +1,13 @@
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
+use reqwest::Client;
 use std::{
     fmt,
     future::Future,
     net::SocketAddrV4,
     ops::Deref,
     path::PathBuf,
-    pin::{pin, Pin},
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -257,7 +258,9 @@ impl Container {
     #[tracing::instrument]
     pub(crate) async fn start(&self) -> anyhow::Result<SocketAddrV4> {
         let (owned_start, image, db_setup) = {
+            dbg!();
             let mut current = self.status.write().await;
+            dbg!();
             if let ContainerStatus::StandBy { image, db_setup } = current.clone() {
                 *current = ContainerStatus::Starting {
                     image: image.clone(),
@@ -274,8 +277,11 @@ impl Container {
         };
 
         if owned_start {
+            dbg!();
             if self.config.pull {
+                dbg!();
                 pull_image(&image).await;
+                dbg!();
             }
             let container = create_container(
                 image.clone(),
@@ -284,14 +290,18 @@ impl Container {
                 self.config.command.clone(),
             )
             .await?;
+            dbg!();
             run_container(&container).await?;
+            dbg!();
 
             let ip = get_bollard_container_ipv4(&container)
                 .await
                 .ok_or(anyhow!("Could not get IP for container"))?;
+            dbg!();
             let socket = SocketAddrV4::new(ip, 80);
             let timeout = now() + 60 * 1000; // 60 seconds
             while !is_online(&socket.to_string()).await {
+                dbg!();
                 if now() > timeout {
                     let logs: String = get_container_execution_logs(&container)
                         .await
@@ -299,6 +309,7 @@ impl Container {
                         .collect();
                     bail!("Container {container} start timed out. See the logs below:\n{logs}");
                 }
+                dbg!();
                 sleep(Duration::from_millis(200)).await;
             }
 
@@ -320,6 +331,7 @@ impl Container {
             //     bail!("Container start timed out");
             // }
 
+            dbg!();
             *self.status.write().await = ContainerStatus::Ready {
                 image: image.clone(),
                 db_setup,
@@ -327,6 +339,7 @@ impl Container {
                 socket,
                 last_access: RwLock::new(Instant::now()).into(),
             };
+            dbg!();
 
             Ok(socket)
         } else {
@@ -360,6 +373,7 @@ impl Listener for Arc<Container> {
             }
             _ => None,
         };
+        dbg!(&socket);
 
         // all of this duplication is just to avoid holding a read lock onto the status...
         // wait but Im creating it anyways
@@ -385,6 +399,7 @@ impl Listener for Arc<Container> {
                         Ok(Access::Socket(socket.clone()))
                     }
                     ContainerStatus::StandBy { .. } | ContainerStatus::Starting { .. } => {
+                        dbg!();
                         let socket = self.start().await?;
                         Ok(Access::Socket(socket))
                     }
@@ -412,8 +427,14 @@ impl Listener for Arc<Container> {
 #[tracing::instrument]
 async fn is_online(host: &str) -> bool {
     let url = format!("http://{host}");
-    let response = reqwest::get(url).await;
-    // TODO: review if this is actually enough
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let response = client.get(url).send().await;
+    dbg!(&response);
+    // let response = reqwest::get(url).await;
+    // TODO: review if this is actually enough or I need to do the thing below instead
     response.is_ok()
     // match response {
     //     Ok(response) => response.status() == StatusCode::OK,

@@ -1,15 +1,10 @@
 use anyhow::ensure;
-use nixpacks::{
-    create_docker_image,
-    nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
-};
 use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
 };
 use tempfile::TempDir;
-use tokio::fs;
 
 use crate::{
     db::nano_id::NanoId,
@@ -17,6 +12,7 @@ use crate::{
     env::EnvVars,
     github::Github,
     hooks::StatusHooks,
+    nixpacks::create_docker_image_with_nixpacks,
     sqlite_db::{BranchSqliteDb, ProdSqliteDb, SqliteDbSetup},
 };
 
@@ -124,8 +120,7 @@ impl CommitContainer {
             Ok(image)
         } else {
             let tempdir = TempDir::new()?;
-            let path = tempdir.as_ref();
-            let path = self.build_context(path).await?;
+            let path = self.build_context(tempdir.as_ref()).await?;
             let image = build_dockerfile(name, &path, self.env.clone(), &mut |chunk| async {
                 if let Some(stream) = chunk.stream {
                     hooks.on_build_log(&stream, false).await
@@ -148,44 +143,16 @@ impl CommitContainer {
         let inner_path = path.join(&self.root);
 
         if !inner_path.join("Dockerfile").exists() {
-            self.create_dockerfile_with_nixpacks(&inner_path).await?;
+            // self.create_dockerfile_with_nixpacks(&inner_path).await?;
+            let env_vec: Vec<String> = self.env.clone().into();
+            create_docker_image_with_nixpacks(
+                &inner_path,
+                env_vec.iter().map(String::as_str).collect(),
+            )
+            .await?;
         }
 
         Ok(inner_path)
-    }
-
-    #[tracing::instrument]
-    async fn create_dockerfile_with_nixpacks(&self, inner_path: &Path) -> anyhow::Result<()> {
-        let env_vec: Vec<String> = self.env.clone().into();
-        create_docker_image(
-            inner_path.to_str().unwrap(),
-            env_vec.iter().map(String::as_str).collect(),
-            &GeneratePlanOptions::default(),
-            &DockerBuilderOptions {
-                out_dir: Some(inner_path.display().to_string()), // TODO: test what happens if I omit this ?
-                // quiet: true,
-                // verbose: false,
-                // name: Some(name.clone()),
-                // print_dockerfile: false,
-                // cache_key: None,
-                // no_cache: true,
-                // inline_cache: false,
-                // platform: vec![],
-                // current_dir: true,
-                // no_error_without_start: true,
-                // docker_host: Some("unix:///var/run/docker.sock".to_owned()),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-        fs::rename(
-            inner_path.join(".nixpacks").join("Dockerfile"),
-            inner_path.join("Dockerfile"),
-        )
-        .await?;
-
-        Ok(())
     }
 }
 

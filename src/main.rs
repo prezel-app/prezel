@@ -21,6 +21,7 @@ mod hooks;
 mod label;
 mod listener;
 mod logging;
+mod nixpacks;
 mod paths;
 mod provider;
 mod proxy;
@@ -58,8 +59,7 @@ async fn main() {
 
     manager.full_sync_with_github().await;
 
-    let api_hostname = format!("api.{}", &conf.hostname);
-    run_api_server(manager, db, github, &api_hostname, conf.secret)
+    run_api_server(manager, db, github, &conf.api_hostname(), conf.secret)
         .await
         .unwrap();
 }

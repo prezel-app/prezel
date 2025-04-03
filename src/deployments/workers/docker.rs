@@ -18,8 +18,8 @@ impl Worker for DockerWorker {
             // Careful, don't remove a container that was just started but not wrote yet into a Ready status
             for container in list_managed_container_ids().await.unwrap() {
                 if !self.is_container_in_use(&container).await {
-                    stop_container(&container).await;
-                    delete_container(&container).await;
+                    // stop_container(&container).await;
+                    // delete_container(&container).await;
                 }
             }
 
