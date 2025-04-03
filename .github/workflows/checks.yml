@@ -29,5 +29,6 @@ jobs:
           cache-all-crates: true
       - run: make db
       - run: cargo build
+      - run: cargo test
       - run: test -f docs/public/openapi.json
       - run: test "$(shell make openapi-hash)" = "$(shell make openapi > /dev/null 2> /dev/null && make openapi-hash)"
