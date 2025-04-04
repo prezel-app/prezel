@@ -61,6 +61,10 @@ pub(crate) struct CertificateStore {
 }
 
 impl CertificateStore {
+    pub(crate) fn get_all_domains(&self) -> HashMap<String, TlsState> {
+        self.domains.read().unwrap().clone()
+    }
+
     pub(crate) fn get_domain(&self, domain: &str) -> Option<TlsState> {
         self.domains.read().unwrap().get(domain).cloned()
     }

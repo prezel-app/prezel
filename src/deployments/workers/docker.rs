@@ -4,7 +4,7 @@ use futures::StreamExt;
 
 use crate::{
     deployments::{manager::InstrumentedRwLock, map::DeploymentMap, worker::Worker},
-    docker::{delete_container, list_managed_container_ids, stop_container},
+    docker::{delete_container, list_managed_stable_container_ids, stop_container},
 };
 
 #[derive(Debug)]
@@ -16,10 +16,10 @@ impl Worker for DockerWorker {
     fn work(&self) -> impl std::future::Future<Output = ()> + Send {
         async {
             // Careful, don't remove a container that was just started but not wrote yet into a Ready status
-            for container in list_managed_container_ids().await.unwrap() {
+            for container in list_managed_stable_container_ids().await.unwrap() {
                 if !self.is_container_in_use(&container).await {
-                    // stop_container(&container).await;
-                    // delete_container(&container).await;
+                    stop_container(&container).await;
+                    delete_container(&container).await;
                 }
             }
 

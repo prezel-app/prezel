@@ -43,7 +43,7 @@ pub(crate) const API_PORT: u16 = 5045;
         deployments::get_deployment_logs,
         deployments::get_deployment_build_logs
     ),
-    components(schemas(ProjectInfo, FullProjectInfo, ErrorResponse, UpdateProject, Repository, ApiDeployment, Log, Level, Status, InsertProject, LibsqlDb, EnvVar, EditedEnvVar)),
+    components(schemas(ProjectInfo, FullProjectInfo, ErrorResponse, UpdateProject, Repository, ApiDeployment, Log, Level, Status, InsertProject, LibsqlDb, EnvVar, EditedEnvVar, Certificate)),
     tags(
         (name = "prezel", description = "Prezel management endpoints.")
     ),
@@ -57,6 +57,7 @@ fn configure_service(store: Data<AppState>) -> impl FnOnce(&mut ServiceConfig) {
             .service(version::get_version)
             .service(version::update_version)
             .service(system::get_logs)
+            .service(system::get_certs)
             .service(apps::get_projects)
             .service(apps::get_project)
             .service(apps::create_project)
@@ -222,28 +223,6 @@ impl ApiDeployment {
     }
 }
 
-// trait PlusHttps {
-//     fn plus_https(&self) -> Self;
-// }
-
-// impl PlusHttps for String {
-//     fn plus_https(&self) -> Self {
-//         format!("https://{self}")
-//     }
-// }
-
-// impl PlusHttps for Option<String> {
-//     fn plus_https(&self) -> Self {
-//         self.as_ref().map(|hostname| hostname.plus_https())
-//     }
-// }
-
-// impl PlusHttps for Vec<String> {
-//     fn plus_https(&self) -> Self {
-//         self.iter().map(|hostname| hostname.plus_https()).collect()
-//     }
-// }
-
 #[derive(Serialize, ToSchema)]
 struct Repository {
     id: String,
@@ -287,4 +266,13 @@ struct FullProjectInfo {
     prod_deployment: Option<ApiDeployment>,
     /// All project deployments sorted by created datetime descending
     deployments: Vec<ApiDeployment>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct Certificate {
+    domain: String,
+    expiring: i64,
+    issuer_org: String,
+    issuer_name: String,
+    issuer_country: String,
 }

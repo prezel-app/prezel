@@ -162,11 +162,9 @@ async fn update_project(
 #[tracing::instrument]
 async fn delete_project(
     auth: AdminRole,
-    req: HttpRequest,
     state: Data<AppState>,
     id: Path<String>,
 ) -> impl Responder {
-    req.extensions().get::<TokenClaims>();
     state.db.delete_project(&id.into_inner().into()).await;
     state.manager.sync_with_db().await;
     HttpResponse::Ok()

@@ -432,7 +432,7 @@ async fn is_online(host: &str) -> bool {
         .build()
         .unwrap();
     let response = client.get(url).send().await;
-    dbg!(&response);
+    // dbg!(&response);
     // let response = reqwest::get(url).await;
     // TODO: review if this is actually enough or I need to do the thing below instead
     response.is_ok()

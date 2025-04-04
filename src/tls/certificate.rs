@@ -61,15 +61,19 @@ impl TlsCertificate {
         })
     }
 
+    pub(crate) fn load_pem(&self) -> anyhow::Result<tls::x509::X509> {
+        read_pem_from_path(&Path::new(&self.cert))
+    }
+
     pub(crate) fn is_expiring_soon(&self) -> bool {
         // FIXME: remove these unwraps?
         // maybe return true if there is an error reading?
-        if let Ok(cert) = read_pem_from_path(&Path::new(&self.cert)) {
+        if let Ok(cert) = self.load_pem() {
             let now = Asn1Time::from_unix(now_in_seconds()).unwrap();
             let diff = now.diff(cert.not_after()).unwrap();
             diff.days < 15
         } else {
-            println!("error reading pem");
+            println!("error reading pem"); // FIXME: ???????
             false
         }
     }

@@ -25,7 +25,10 @@ use std::{
 };
 use utoipa::ToSchema;
 
-use crate::{env::EnvVars, utils::LOWERCASE_PLUS_NUMBERS};
+use crate::{
+    env::EnvVars,
+    utils::{now_in_seconds, LOWERCASE_PLUS_NUMBERS},
+};
 
 #[tracing::instrument]
 pub(crate) fn docker_client() -> Docker {
@@ -287,7 +290,8 @@ pub(crate) async fn delete_image(name: &str) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-pub(crate) async fn list_managed_container_ids() -> anyhow::Result<impl Iterator<Item = String>> {
+pub(crate) async fn list_managed_stable_container_ids(
+) -> anyhow::Result<impl Iterator<Item = String>> {
     let docker = docker_client();
     let opts: ListContainersOptions<String> = ListContainersOptions {
         all: true,
@@ -295,8 +299,10 @@ pub(crate) async fn list_managed_container_ids() -> anyhow::Result<impl Iterator
     };
     let containers = docker.list_containers(Some(opts)).await?;
 
+    let threshold = now_in_seconds() - 60; // 1 minute ago
     Ok(containers
         .into_iter()
+        .filter(move |summary| summary.created.is_some_and(|created| created < threshold))
         .filter(move |summary| match &summary.names {
             Some(names) => names
                 .get(0)
