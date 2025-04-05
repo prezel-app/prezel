@@ -1,7 +1,7 @@
 use actix_web::{
     delete, get, patch, post,
     web::{Data, Json, Path},
-    HttpMessage, HttpRequest, HttpResponse, Responder,
+    HttpResponse, Responder,
 };
 use futures::future::join_all;
 
@@ -14,7 +14,6 @@ use crate::{
         AppState, ErrorResponse, FullProjectInfo, ProjectInfo,
     },
     db::{nano_id::IntoOptString, EnvVar, InsertProject, UpdateProject},
-    tokens::TokenClaims,
 };
 
 /// Get projects

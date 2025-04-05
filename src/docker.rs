@@ -38,6 +38,16 @@ pub(crate) fn docker_client() -> Docker {
 const NETWORK_NAME: &'static str = "prezel";
 const CONTAINER_PREFIX: &'static str = "prezel-";
 
+// TODO: instead of this returna DockerContainerHandle that you can call create and start against
+pub(crate) fn generate_managed_container_name() -> String {
+    let suffix = nanoid!(21, &LOWERCASE_PLUS_NUMBERS);
+    format!("{CONTAINER_PREFIX}{suffix}",)
+}
+
+pub(crate) fn generate_unmanaged_container_name() -> String {
+    nanoid!(21, &LOWERCASE_PLUS_NUMBERS)
+}
+
 // TPODO: move all of this into a different folder to enforce usage of the function to return the real name
 #[derive(Debug, Clone)]
 pub(crate) struct ImageName(String);
@@ -155,6 +165,7 @@ pub(crate) async fn pull_image(image: &str) {
 }
 
 pub(crate) async fn create_container<'a, I: Iterator<Item = &'a PathBuf>>(
+    name: String,
     image: String,
     env: EnvVars,
     host_folders: I,
@@ -166,10 +177,11 @@ pub(crate) async fn create_container<'a, I: Iterator<Item = &'a PathBuf>>(
             format!("{path}:{path}")
         })
         .collect();
-    create_container_with_explicit_binds(image, env, binds, command).await
+    create_container_with_explicit_binds(name, image, env, binds, command).await
 }
 
 pub(crate) async fn create_container_with_explicit_binds(
+    name: String,
     image: String,
     env: EnvVars,
     binds: Vec<String>,
@@ -181,8 +193,6 @@ pub(crate) async fn create_container_with_explicit_binds(
     let cmd = command.map(|command| vec![command]);
     let docker = docker_client();
 
-    let id = nanoid!(21, &LOWERCASE_PLUS_NUMBERS);
-    let name = format!("{CONTAINER_PREFIX}{id}",);
     let response = docker
         .create_container::<String, _>(
             Some(CreateContainerOptions {
@@ -290,26 +300,25 @@ pub(crate) async fn delete_image(name: &str) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-pub(crate) async fn list_managed_stable_container_ids(
-) -> anyhow::Result<impl Iterator<Item = String>> {
+pub(crate) async fn list_managed_container_names() -> anyhow::Result<impl Iterator<Item = String>> {
+    let prefix = format!("/{CONTAINER_PREFIX}");
     let docker = docker_client();
     let opts: ListContainersOptions<String> = ListContainersOptions {
         all: true,
         ..Default::default()
     };
     let containers = docker.list_containers(Some(opts)).await?;
-
-    let threshold = now_in_seconds() - 60; // 1 minute ago
     Ok(containers
         .into_iter()
-        .filter(move |summary| summary.created.is_some_and(|created| created < threshold))
-        .filter(move |summary| match &summary.names {
-            Some(names) => names
-                .get(0)
-                .is_some_and(|name| name.starts_with(&format!("/{CONTAINER_PREFIX}"))),
-            None => true,
-        })
-        .filter_map(|summary| summary.id))
+        .filter_map(|summary| summary.names)
+        .filter_map(move |names| names.get(0).cloned())
+        .filter_map(move |name| {
+            if name.starts_with(&prefix) {
+                Some(name.replace("/", ""))
+            } else {
+                None
+            }
+        }))
 }
 
 #[cfg(test)]

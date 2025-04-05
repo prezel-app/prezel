@@ -175,7 +175,8 @@ impl ApiDeployment {
                     vec![]
                 };
 
-                let app_container = deployment.app_container.get_container_id().await;
+                // FIXME: maybe only expose the container name in the api if the container really exists
+                let app_container = deployment.app_container.get_container_name().await;
 
                 let db_url = db_deployment.get_libsql_url(box_domain);
                 let libsql_db = if is_prod {

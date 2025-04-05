@@ -64,7 +64,6 @@ impl ProxyApp {
     async fn get_listener_inner(&self, session: &Session) -> Option<Peer> {
         // TODO: try to use session.req_header().uri.host()
         let host = session.get_header(header::HOST)?.to_str().ok()?;
-        dbg!(&host);
 
         if host == self.config.api_hostname() {
             Some(ApiListener.into())
@@ -136,11 +135,8 @@ impl ProxyHttp for ProxyApp {
         } = self.get_listener(session).await?;
         ctx.deployment = deployment_id;
 
-        dbg!();
         if listener.is_public() || self.is_authenticated(session) {
-            dbg!();
             let access = listener.access().await.map_err(|error| {
-                dbg!(&error);
                 Error::create(
                     Custom("Failed to aquire socket"),
                     ErrorSource::Unset, // FIXME: is this correct ??

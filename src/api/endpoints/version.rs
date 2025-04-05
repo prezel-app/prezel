@@ -7,8 +7,8 @@ use tracing::error;
 use crate::{
     api::bearer::{AdminRole, AnyRole},
     docker::{
-        create_container_with_explicit_binds, get_image_id, get_prezel_image_version, pull_image,
-        run_container,
+        create_container_with_explicit_binds, generate_unmanaged_container_name, get_image_id,
+        get_prezel_image_version, pull_image, run_container,
     },
 };
 
@@ -97,8 +97,9 @@ async fn run_update_container(version: &str) -> anyhow::Result<()> {
     let image = "alpine/curl".to_owned();
     pull_image(&image).await;
     let binds = vec!["/var/run/docker.sock:/var/run/docker.sock".to_owned()];
+    let name = generate_unmanaged_container_name();
     let container =
-        create_container_with_explicit_binds(image, Default::default(), binds, Some(command))
+        create_container_with_explicit_binds(name, image, Default::default(), binds, Some(command))
             .await?;
     Ok(run_container(&container).await?)
 }

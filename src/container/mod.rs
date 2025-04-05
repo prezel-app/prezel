@@ -19,8 +19,9 @@ use crate::{
     db::{nano_id::NanoId, BuildResult},
     deployments::worker::WorkerHandle,
     docker::{
-        build_dockerfile, create_container, get_bollard_container_ipv4,
-        get_container_execution_logs, pull_image, run_container, DockerLog,
+        build_dockerfile, create_container, generate_managed_container_name,
+        get_bollard_container_ipv4, get_container_execution_logs, pull_image, run_container,
+        DockerLog,
     },
     env::EnvVars,
     hooks::DeploymentHooks,
@@ -77,12 +78,13 @@ pub(crate) enum ContainerStatus {
     },
     Starting {
         image: String,
+        container_name: String,
         db_setup: Option<SqliteDbSetup>,
     },
     Ready {
         image: String,
+        container_name: String,
         db_setup: Option<SqliteDbSetup>,
-        container: String,
         socket: SocketAddrV4,
         last_access: Arc<RwLock<Instant>>,
     },
@@ -91,9 +93,9 @@ pub(crate) enum ContainerStatus {
 
 impl ContainerStatus {
     #[tracing::instrument]
-    fn get_container_id(&self) -> Option<String> {
-        if let Self::Ready { container, .. } = self {
-            Some(container.clone())
+    fn get_container_name(&self) -> Option<String> {
+        if let Self::Ready { container_name, .. } | Self::Starting { container_name, .. } = self {
+            Some(container_name.clone())
         } else {
             None
         }
@@ -170,13 +172,13 @@ impl Container {
 
     // TODO: review, do we really need to expose the container id in the api?
     #[tracing::instrument]
-    pub(crate) async fn get_container_id(&self) -> Option<String> {
-        self.status.read().await.get_container_id()
+    pub(crate) async fn get_container_name(&self) -> Option<String> {
+        self.status.read().await.get_container_name()
     }
 
     #[tracing::instrument]
     pub(crate) async fn get_logs(&self) -> Box<dyn Iterator<Item = DockerLog>> {
-        if let Some(container) = self.get_container_id().await {
+        if let Some(container) = self.get_container_name().await {
             Box::new(get_container_execution_logs(&container).await)
         } else {
             Box::new(std::iter::empty())
@@ -257,18 +259,28 @@ impl Container {
 
     #[tracing::instrument]
     pub(crate) async fn start(&self) -> anyhow::Result<SocketAddrV4> {
-        let (owned_start, image, db_setup) = {
-            dbg!();
+        let (owned_start, image, name, db_setup) = {
             let mut current = self.status.write().await;
-            dbg!();
             if let ContainerStatus::StandBy { image, db_setup } = current.clone() {
+                let name = generate_managed_container_name();
                 *current = ContainerStatus::Starting {
                     image: image.clone(),
+                    container_name: name.clone(),
                     db_setup: db_setup.clone(),
                 };
-                (true, image, db_setup)
-            } else if let ContainerStatus::Starting { image, db_setup } = current.deref() {
-                (false, image.clone(), db_setup.clone())
+                (true, image, name, db_setup)
+            } else if let ContainerStatus::Starting {
+                image,
+                container_name,
+                db_setup,
+            } = current.deref()
+            {
+                (
+                    false,
+                    image.clone(),
+                    container_name.clone(),
+                    db_setup.clone(),
+                )
             } else if let ContainerStatus::Ready { socket, .. } = current.deref() {
                 return Ok(socket.clone());
             } else {
@@ -277,31 +289,25 @@ impl Container {
         };
 
         if owned_start {
-            dbg!();
             if self.config.pull {
-                dbg!();
                 pull_image(&image).await;
-                dbg!();
             }
             let container = create_container(
+                name.clone(),
                 image.clone(),
                 self.config.env.clone(),
                 self.config.host_folders.iter(),
                 self.config.command.clone(),
             )
             .await?;
-            dbg!();
             run_container(&container).await?;
-            dbg!();
 
             let ip = get_bollard_container_ipv4(&container)
                 .await
                 .ok_or(anyhow!("Could not get IP for container"))?;
-            dbg!();
             let socket = SocketAddrV4::new(ip, 80);
             let timeout = now() + 60 * 1000; // 60 seconds
             while !is_online(&socket.to_string()).await {
-                dbg!();
                 if now() > timeout {
                     let logs: String = get_container_execution_logs(&container)
                         .await
@@ -309,7 +315,6 @@ impl Container {
                         .collect();
                     bail!("Container {container} start timed out. See the logs below:\n{logs}");
                 }
-                dbg!();
                 sleep(Duration::from_millis(200)).await;
             }
 
@@ -331,15 +336,13 @@ impl Container {
             //     bail!("Container start timed out");
             // }
 
-            dbg!();
             *self.status.write().await = ContainerStatus::Ready {
                 image: image.clone(),
+                container_name: name,
                 db_setup,
-                container,
                 socket,
                 last_access: RwLock::new(Instant::now()).into(),
             };
-            dbg!();
 
             Ok(socket)
         } else {
@@ -373,7 +376,6 @@ impl Listener for Arc<Container> {
             }
             _ => None,
         };
-        dbg!(&socket);
 
         // all of this duplication is just to avoid holding a read lock onto the status...
         // wait but Im creating it anyways
@@ -399,7 +401,6 @@ impl Listener for Arc<Container> {
                         Ok(Access::Socket(socket.clone()))
                     }
                     ContainerStatus::StandBy { .. } | ContainerStatus::Starting { .. } => {
-                        dbg!();
                         let socket = self.start().await?;
                         Ok(Access::Socket(socket))
                     }
@@ -432,7 +433,6 @@ async fn is_online(host: &str) -> bool {
         .build()
         .unwrap();
     let response = client.get(url).send().await;
-    // dbg!(&response);
     // let response = reqwest::get(url).await;
     // TODO: review if this is actually enough or I need to do the thing below instead
     response.is_ok()
