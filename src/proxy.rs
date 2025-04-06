@@ -135,10 +135,8 @@ impl ProxyHttp for ProxyApp {
         } = self.get_listener(session).await?;
         ctx.deployment = deployment_id;
 
-        // let listener = self.get_listener(session).await?.listener;
         if listener.is_public() || self.is_authenticated(session) {
             let access = listener.access().await.map_err(|error| {
-                dbg!(&error);
                 Error::create(
                     Custom("Failed to aquire socket"),
                     ErrorSource::Unset, // FIXME: is this correct ??

@@ -1,12 +1,13 @@
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
+use reqwest::Client;
 use std::{
     fmt,
     future::Future,
     net::SocketAddrV4,
     ops::Deref,
     path::PathBuf,
-    pin::{pin, Pin},
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -18,8 +19,9 @@ use crate::{
     db::{nano_id::NanoId, BuildResult},
     deployments::worker::WorkerHandle,
     docker::{
-        build_dockerfile, create_container, get_bollard_container_ipv4,
-        get_container_execution_logs, pull_image, run_container, DockerLog,
+        build_dockerfile, create_container, generate_managed_container_name,
+        get_bollard_container_ipv4, get_container_execution_logs, pull_image, run_container,
+        DockerLog,
     },
     env::EnvVars,
     hooks::DeploymentHooks,
@@ -76,12 +78,13 @@ pub(crate) enum ContainerStatus {
     },
     Starting {
         image: String,
+        container_name: String,
         db_setup: Option<SqliteDbSetup>,
     },
     Ready {
         image: String,
+        container_name: String,
         db_setup: Option<SqliteDbSetup>,
-        container: String,
         socket: SocketAddrV4,
         last_access: Arc<RwLock<Instant>>,
     },
@@ -90,9 +93,21 @@ pub(crate) enum ContainerStatus {
 
 impl ContainerStatus {
     #[tracing::instrument]
-    fn get_container_id(&self) -> Option<String> {
-        if let Self::Ready { container, .. } = self {
-            Some(container.clone())
+    fn get_container_name(&self) -> Option<String> {
+        if let Self::Ready { container_name, .. } | Self::Starting { container_name, .. } = self {
+            Some(container_name.clone())
+        } else {
+            None
+        }
+    }
+
+    #[tracing::instrument]
+    pub(crate) fn get_image_name(&self) -> Option<&str> {
+        if let Self::Ready { image, .. }
+        | Self::Starting { image, .. }
+        | Self::StandBy { image, .. } = self
+        {
+            Some(image)
         } else {
             None
         }
@@ -169,13 +184,13 @@ impl Container {
 
     // TODO: review, do we really need to expose the container id in the api?
     #[tracing::instrument]
-    pub(crate) async fn get_container_id(&self) -> Option<String> {
-        self.status.read().await.get_container_id()
+    pub(crate) async fn get_container_name(&self) -> Option<String> {
+        self.status.read().await.get_container_name()
     }
 
     #[tracing::instrument]
     pub(crate) async fn get_logs(&self) -> Box<dyn Iterator<Item = DockerLog>> {
-        if let Some(container) = self.get_container_id().await {
+        if let Some(container) = self.get_container_name().await {
             Box::new(get_container_execution_logs(&container).await)
         } else {
             Box::new(std::iter::empty())
@@ -256,16 +271,28 @@ impl Container {
 
     #[tracing::instrument]
     pub(crate) async fn start(&self) -> anyhow::Result<SocketAddrV4> {
-        let (owned_start, image, db_setup) = {
+        let (owned_start, image, name, db_setup) = {
             let mut current = self.status.write().await;
             if let ContainerStatus::StandBy { image, db_setup } = current.clone() {
+                let name = generate_managed_container_name();
                 *current = ContainerStatus::Starting {
                     image: image.clone(),
+                    container_name: name.clone(),
                     db_setup: db_setup.clone(),
                 };
-                (true, image, db_setup)
-            } else if let ContainerStatus::Starting { image, db_setup } = current.deref() {
-                (false, image.clone(), db_setup.clone())
+                (true, image, name, db_setup)
+            } else if let ContainerStatus::Starting {
+                image,
+                container_name,
+                db_setup,
+            } = current.deref()
+            {
+                (
+                    false,
+                    image.clone(),
+                    container_name.clone(),
+                    db_setup.clone(),
+                )
             } else if let ContainerStatus::Ready { socket, .. } = current.deref() {
                 return Ok(socket.clone());
             } else {
@@ -278,6 +305,7 @@ impl Container {
                 pull_image(&image).await;
             }
             let container = create_container(
+                name.clone(),
                 image.clone(),
                 self.config.env.clone(),
                 self.config.host_folders.iter(),
@@ -322,8 +350,8 @@ impl Container {
 
             *self.status.write().await = ContainerStatus::Ready {
                 image: image.clone(),
+                container_name: name,
                 db_setup,
-                container,
                 socket,
                 last_access: RwLock::new(Instant::now()).into(),
             };
@@ -412,8 +440,13 @@ impl Listener for Arc<Container> {
 #[tracing::instrument]
 async fn is_online(host: &str) -> bool {
     let url = format!("http://{host}");
-    let response = reqwest::get(url).await;
-    // TODO: review if this is actually enough
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let response = client.get(url).send().await;
+    // let response = reqwest::get(url).await;
+    // TODO: review if this is actually enough or I need to do the thing below instead
     response.is_ok()
     // match response {
     //     Ok(response) => response.status() == StatusCode::OK,

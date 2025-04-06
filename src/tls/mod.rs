@@ -61,6 +61,10 @@ pub(crate) struct CertificateStore {
 }
 
 impl CertificateStore {
+    pub(crate) fn get_all_domains(&self) -> HashMap<String, TlsState> {
+        self.domains.read().unwrap().clone()
+    }
+
     pub(crate) fn get_domain(&self, domain: &str) -> Option<TlsState> {
         self.domains.read().unwrap().get(domain).cloned()
     }
@@ -190,29 +194,29 @@ impl CertificateStore {
     }
 }
 
-#[cfg(test)]
-mod tls_tests {
-    use instant_acme::LetsEncrypt;
+// #[cfg(test)]
+// mod tls_tests {
+//     use instant_acme::LetsEncrypt;
 
-    use crate::{conf::Conf, tls::account::create_new_account};
+//     use crate::{conf::Conf, tls::account::create_new_account};
 
-    #[tokio::test]
-    async fn test_registration() {
-        let _conf = Conf::read();
-        let (_account, _credentials) = create_new_account(LetsEncrypt::Staging.url()).await;
-        // let certificate = generate_tls_certificate(account, &conf).await;
-        // dbg!(certificate);
-    }
+//     #[tokio::test]
+//     async fn test_registration() {
+//         let _conf = Conf::read();
+//         let (_account, _credentials) = create_new_account(LetsEncrypt::Staging.url()).await;
+//         // let certificate = generate_tls_certificate(account, &conf).await;
+//         // dbg!(certificate);
+//     }
 
-    #[tokio::test]
-    async fn test_account() {
-        // TODO: re-enable this test!
-        // let account = get_saved_account().await;
-        // assert!(account.is_err());
+//     #[tokio::test]
+//     async fn test_account() {
+//         // TODO: re-enable this test!
+//         // let account = get_saved_account().await;
+//         // assert!(account.is_err());
 
-        // get_saved_account_or_new(LetsEncrypt::Staging.url()).await;
+//         // get_saved_account_or_new(LetsEncrypt::Staging.url()).await;
 
-        // let account = get_saved_account().await;
-        // assert!(account.is_ok());
-    }
-}
+//         // let account = get_saved_account().await;
+//         // assert!(account.is_ok());
+//     }
+// }

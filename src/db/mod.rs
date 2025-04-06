@@ -515,7 +515,10 @@ impl Db {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn insert_deployment(&self, deployment: InsertDeployment) {
+    pub(crate) async fn insert_deployment(
+        &self,
+        deployment: InsertDeployment,
+    ) -> anyhow::Result<()> {
         let created = now();
         let id = NanoId::random();
         let url_id = create_deployment_url_id();
@@ -531,9 +534,7 @@ impl Db {
             deployment.project
         )
         .execute(&self.conn)
-        .await
-        .unwrap();
-
+        .await?;
         for var in deployment.env {
             sqlx::query!(
                 "insert into deployment_env (name, value, deployment) values (?, ?, ?)",
@@ -543,8 +544,9 @@ impl Db {
             )
             .execute(&self.conn)
             .await
-            .unwrap();
+            .unwrap(); // TODO: do this query in a single transaction with the one above
         }
+        Ok(())
     }
 
     #[tracing::instrument]

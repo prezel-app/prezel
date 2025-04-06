@@ -95,7 +95,3 @@ aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-route53 = "1.64.0"
 dotenv = "0.15.0"
 # openapi = { path = "./client" }
-
-# [[bin]]
-# name = "openapi"
-# path = "src/openapi.rs"

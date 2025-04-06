@@ -8,7 +8,7 @@ use bollard::{
     },
     errors::Error as DockerError,
     image::{BuildImageOptions, CreateImageOptions},
-    secret::{BuildInfo, HostConfig},
+    secret::{BuildInfo, HostConfig, ImageInspect},
     Docker,
 };
 use chrono::{DateTime, Utc};
@@ -34,6 +34,16 @@ pub(crate) fn docker_client() -> Docker {
 
 const NETWORK_NAME: &'static str = "prezel";
 const CONTAINER_PREFIX: &'static str = "prezel-";
+
+// TODO: instead of this returna DockerContainerHandle that you can call create and start against
+pub(crate) fn generate_managed_container_name() -> String {
+    let suffix = nanoid!(21, &LOWERCASE_PLUS_NUMBERS);
+    format!("{CONTAINER_PREFIX}{suffix}",)
+}
+
+pub(crate) fn generate_unmanaged_container_name() -> String {
+    nanoid!(21, &LOWERCASE_PLUS_NUMBERS)
+}
 
 // TPODO: move all of this into a different folder to enforce usage of the function to return the real name
 #[derive(Debug, Clone)]
@@ -121,13 +131,13 @@ fn parse_message(message: Bytes) -> Option<(i64, String)> {
 }
 
 pub(crate) async fn get_managed_image_id(name: &ImageName) -> Option<String> {
-    get_image_id(&name.to_docker_name()).await
+    get_image(&name.to_docker_name()).await?.id
 }
 
-pub(crate) async fn get_image_id(name: &str) -> Option<String> {
+pub(crate) async fn get_image(name: &str) -> Option<ImageInspect> {
     let docker = docker_client();
     let image = docker.inspect_image(name).await;
-    image.ok()?.id
+    image.ok()
 }
 
 pub(crate) async fn get_prezel_image_version() -> Option<String> {
@@ -152,6 +162,7 @@ pub(crate) async fn pull_image(image: &str) {
 }
 
 pub(crate) async fn create_container<'a, I: Iterator<Item = &'a PathBuf>>(
+    name: String,
     image: String,
     env: EnvVars,
     host_folders: I,
@@ -163,10 +174,11 @@ pub(crate) async fn create_container<'a, I: Iterator<Item = &'a PathBuf>>(
             format!("{path}:{path}")
         })
         .collect();
-    create_container_with_explicit_binds(image, env, binds, command).await
+    create_container_with_explicit_binds(name, image, env, binds, command).await
 }
 
 pub(crate) async fn create_container_with_explicit_binds(
+    name: String,
     image: String,
     env: EnvVars,
     binds: Vec<String>,
@@ -178,8 +190,6 @@ pub(crate) async fn create_container_with_explicit_binds(
     let cmd = command.map(|command| vec![command]);
     let docker = docker_client();
 
-    let id = nanoid!(21, &LOWERCASE_PLUS_NUMBERS);
-    let name = format!("{CONTAINER_PREFIX}{id}",);
     let response = docker
         .create_container::<String, _>(
             Some(CreateContainerOptions {
@@ -287,23 +297,25 @@ pub(crate) async fn delete_image(name: &str) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-pub(crate) async fn list_managed_container_ids() -> anyhow::Result<impl Iterator<Item = String>> {
+pub(crate) async fn list_managed_container_names() -> anyhow::Result<impl Iterator<Item = String>> {
+    let prefix = format!("/{CONTAINER_PREFIX}");
     let docker = docker_client();
     let opts: ListContainersOptions<String> = ListContainersOptions {
         all: true,
         ..Default::default()
     };
     let containers = docker.list_containers(Some(opts)).await?;
-
     Ok(containers
         .into_iter()
-        .filter(move |summary| match &summary.names {
-            Some(names) => names
-                .get(0)
-                .is_some_and(|name| name.starts_with(&format!("/{CONTAINER_PREFIX}"))),
-            None => true,
-        })
-        .filter_map(|summary| summary.id))
+        .filter_map(|summary| summary.names)
+        .filter_map(move |names| names.get(0).cloned())
+        .filter_map(move |name| {
+            if name.starts_with(&prefix) {
+                Some(name.replace("/", ""))
+            } else {
+                None
+            }
+        }))
 }
 
 #[cfg(test)]

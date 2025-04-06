@@ -1,7 +1,7 @@
 use anyhow::{anyhow, ensure};
 
 /// The prefix of the hostname that refers to a resource of a particular app hosted in the server
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Label {
     Prod { project: String },
     ProdDb { project: String },
@@ -60,5 +60,37 @@ fn parse_label(label: &str) -> Option<Label> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::Label;
+
+    #[test]
+    fn test_format_and_parsing() {
+        let box_domain = "red-squirrel.prezel.app";
+        for label in [
+            Label::Prod {
+                project: "test-project".to_owned(),
+            },
+            Label::Deployment {
+                project: "test-project".to_owned(),
+                deployment: "3fg6fdhj".to_owned(),
+            },
+            Label::ProdDb {
+                project: "test-project".to_owned(),
+            },
+            Label::BranchDb {
+                project: "test-project".to_owned(),
+                deployment: "3fg6fdhj".to_owned(),
+            },
+        ] {
+            let formatted = label.format_hostname(box_domain);
+            assert_eq!(
+                Label::strip_from_domain(&formatted, box_domain).unwrap(),
+                label
+            );
+        }
     }
 }

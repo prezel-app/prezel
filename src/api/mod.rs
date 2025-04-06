@@ -9,6 +9,7 @@ use crate::{
         BuildResult, Db, DeploymentWithProject, EditedEnvVar, EnvVar, InsertProject, UpdateProject,
     },
     deployments::{deployment::Deployment, manager::Manager},
+    docker::get_image,
     github::Github,
     logging::{Level, Log},
     sqlite_db::DbAccess,
@@ -43,7 +44,7 @@ pub(crate) const API_PORT: u16 = 5045;
         deployments::get_deployment_logs,
         deployments::get_deployment_build_logs
     ),
-    components(schemas(ProjectInfo, FullProjectInfo, ErrorResponse, UpdateProject, Repository, ApiDeployment, Log, Level, Status, InsertProject, LibsqlDb, EnvVar, EditedEnvVar)),
+    components(schemas(ProjectInfo, FullProjectInfo, ErrorResponse, UpdateProject, Repository, ApiDeployment, Log, Level, Status, InsertProject, LibsqlDb, EnvVar, EditedEnvVar, Certificate)),
     tags(
         (name = "prezel", description = "Prezel management endpoints.")
     ),
@@ -57,6 +58,7 @@ fn configure_service(store: Data<AppState>) -> impl FnOnce(&mut ServiceConfig) {
             .service(version::get_version)
             .service(version::update_version)
             .service(system::get_logs)
+            .service(system::get_certs)
             .service(apps::get_projects)
             .service(apps::get_project)
             .service(apps::create_project)
@@ -80,7 +82,7 @@ pub(crate) struct AppState {
     pub(crate) db: Db,
     pub(crate) manager: Manager,
     pub(crate) github: Github,
-    pub(crate) secret: String,
+    pub(crate) secret: Vec<u8>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -138,6 +140,7 @@ struct ApiDeployment {
     libsql_db: Option<LibsqlDb>,
     status: Status,
     app_container: Option<String>,
+    image_size: Option<i64>,
     // execution_logs: Vec<DockerLog>,
     created: i64,
     build_started: Option<i64>,
@@ -156,10 +159,16 @@ impl ApiDeployment {
         manager: &Manager,
         access: DbAccess,
     ) -> Self {
-        let (status, url, prod_url, custom_urls, app_container, libsql_db) =
+        let (status, url, prod_url, custom_urls, app_container, image_size, libsql_db) =
             if let Some(deployment) = deployment {
                 let container_status = deployment.app_container.status.read().await.clone();
                 let status = container_status.to_status();
+                let image_name = container_status.get_image_name();
+                let image_size = if let Some(name) = image_name {
+                    get_image(name).await.and_then(|image| image.size)
+                } else {
+                    None
+                };
 
                 let url = Some(db_deployment.get_app_base_url(box_domain));
                 let prod_url = is_prod.then_some(db_deployment.get_prod_base_url(box_domain));
@@ -174,7 +183,8 @@ impl ApiDeployment {
                     vec![]
                 };
 
-                let app_container = deployment.app_container.get_container_id().await;
+                // FIXME: maybe only expose the container name in the api if the container really exists
+                let app_container = deployment.app_container.get_container_name().await;
 
                 let db_url = db_deployment.get_libsql_url(box_domain);
                 let libsql_db = if is_prod {
@@ -191,14 +201,22 @@ impl ApiDeployment {
                     })
                 };
 
-                (status, url, prod_url, custom_urls, app_container, libsql_db)
+                (
+                    status,
+                    url,
+                    prod_url,
+                    custom_urls,
+                    app_container,
+                    image_size,
+                    libsql_db,
+                )
             } else {
                 let status = match db_deployment.result {
                     Some(BuildResult::Failed) => Status::Failed,
                     Some(BuildResult::Built) => Status::Built,
                     None => Status::Queued,
                 };
-                (status, None, None, vec![], None, None)
+                (status, None, None, vec![], None, None, None)
             };
 
         // TODO: I should have a nested struct for the container related
@@ -215,34 +233,13 @@ impl ApiDeployment {
             libsql_db,
             status,
             app_container,
+            image_size,
             created: db_deployment.created,
             build_started: db_deployment.build_started,
             build_finished: db_deployment.build_finished,
         }
     }
 }
-
-// trait PlusHttps {
-//     fn plus_https(&self) -> Self;
-// }
-
-// impl PlusHttps for String {
-//     fn plus_https(&self) -> Self {
-//         format!("https://{self}")
-//     }
-// }
-
-// impl PlusHttps for Option<String> {
-//     fn plus_https(&self) -> Self {
-//         self.as_ref().map(|hostname| hostname.plus_https())
-//     }
-// }
-
-// impl PlusHttps for Vec<String> {
-//     fn plus_https(&self) -> Self {
-//         self.iter().map(|hostname| hostname.plus_https()).collect()
-//     }
-// }
 
 #[derive(Serialize, ToSchema)]
 struct Repository {
@@ -287,4 +284,13 @@ struct FullProjectInfo {
     prod_deployment: Option<ApiDeployment>,
     /// All project deployments sorted by created datetime descending
     deployments: Vec<ApiDeployment>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct Certificate {
+    domain: String,
+    expiring: i64,
+    issuer_org: String,
+    issuer_name: String,
+    issuer_country: String,
 }

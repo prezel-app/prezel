@@ -1,5 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use futures::StreamExt;
+use pingora::tls;
 use tokio::sync::RwLock;
 
 use crate::{
@@ -8,7 +10,7 @@ use crate::{
     github::Github,
     label::Label,
     sqlite_db::SqliteDbSetup,
-    tls::CertificateStore,
+    tls::{CertificateStore, TlsState},
 };
 
 use super::{
@@ -96,6 +98,32 @@ impl Manager {
         });
 
         manager
+    }
+
+    pub(crate) async fn get_main_certificate(&self) -> anyhow::Result<tls::x509::X509> {
+        let main_cert = self
+            .deployments
+            .read()
+            .await
+            .certificates
+            .get_default_certificate();
+        main_cert.load_pem()
+    }
+
+    pub(crate) async fn get_custom_domain_certificates(
+        &self,
+    ) -> anyhow::Result<HashMap<String, tls::x509::X509>> {
+        let domains = self.deployments.read().await.certificates.get_all_domains();
+        let certs = domains.into_iter().filter_map(|(domain, state)| {
+            if let TlsState::Ready(cert) = state {
+                Some((domain, cert))
+            } else {
+                None
+            }
+        });
+        certs
+            .map(|(domain, cert)| cert.load_pem().map(|pem| (domain, pem)))
+            .collect()
     }
 
     #[tracing::instrument]

@@ -7,8 +7,8 @@ use tracing::error;
 use crate::{
     api::bearer::{AdminRole, AnyRole},
     docker::{
-        create_container_with_explicit_binds, get_image_id, get_prezel_image_version, pull_image,
-        run_container,
+        create_container_with_explicit_binds, generate_unmanaged_container_name, get_image,
+        get_prezel_image_version, pull_image, run_container,
     },
 };
 
@@ -54,12 +54,12 @@ async fn update_version(_auth: AdminRole, version: Json<String>) -> impl Respond
 }
 
 async fn run_update_container(version: &str) -> anyhow::Result<()> {
-    let image = format!("prezel/prezel:{version}");
-    let id = get_image_id(&image).await;
-    if id.is_none() {
-        pull_image(&image).await;
-        let id = get_image_id(&image).await;
-        ensure!(id.is_some());
+    let name = format!("prezel/prezel:{version}");
+    let image = get_image(&name).await;
+    if image.is_none() {
+        pull_image(&name).await;
+        let image = get_image(&name).await;
+        ensure!(image.is_some());
     }
 
     let create_template = r#"&& curl --unix-socket /var/run/docker.sock -H "Content-Type: application/json" -X POST \
@@ -85,7 +85,7 @@ async fn run_update_container(version: &str) -> anyhow::Result<()> {
               }
             }' \
         http://localhost/containers/create?name=prezel"#;
-    let create = create_template.replace("$IMAGE", &image);
+    let create = create_template.replace("$IMAGE", &name);
     let command = [
         "curl --unix-socket /var/run/docker.sock -X POST http://localhost/containers/prezel/stop",
         "&& curl --unix-socket /var/run/docker.sock -X DELETE http://localhost/containers/prezel",
@@ -97,8 +97,9 @@ async fn run_update_container(version: &str) -> anyhow::Result<()> {
     let image = "alpine/curl".to_owned();
     pull_image(&image).await;
     let binds = vec!["/var/run/docker.sock:/var/run/docker.sock".to_owned()];
+    let name = generate_unmanaged_container_name();
     let container =
-        create_container_with_explicit_binds(image, Default::default(), binds, Some(command))
+        create_container_with_explicit_binds(name, image, Default::default(), binds, Some(command))
             .await?;
     Ok(run_container(&container).await?)
 }

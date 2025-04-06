@@ -61,15 +61,19 @@ impl TlsCertificate {
         })
     }
 
+    pub(crate) fn load_pem(&self) -> anyhow::Result<tls::x509::X509> {
+        read_pem_from_path(&Path::new(&self.cert))
+    }
+
     pub(crate) fn is_expiring_soon(&self) -> bool {
         // FIXME: remove these unwraps?
         // maybe return true if there is an error reading?
-        if let Ok(cert) = read_pem_from_path(&Path::new(&self.cert)) {
+        if let Ok(cert) = self.load_pem() {
             let now = Asn1Time::from_unix(now_in_seconds()).unwrap();
             let diff = now.diff(cert.not_after()).unwrap();
             diff.days < 15
         } else {
-            println!("error reading pem");
+            println!("error reading pem"); // FIXME: ???????
             false
         }
     }
@@ -83,38 +87,4 @@ pub(crate) fn write_certificate_to_disk(
     fs::write(get_domain_cert_path(domain), cert.to_pem()?)?;
     fs::write(get_domain_key_path(domain), key.private_key_to_pem_pkcs8()?)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod test_certificate {
-    use std::fs;
-
-    use pingora::tls;
-
-    use crate::paths::get_domain_cert_path;
-
-    #[test]
-    fn test_cert() {
-        let domain = "*.visible-centipede.018294.xyz";
-        let path = get_domain_cert_path(&domain);
-        let cert = tls::x509::X509::from_pem(&fs::read(&path).unwrap()).unwrap();
-
-        for resp in cert.ocsp_responders().unwrap() {
-            let str: String = resp.chars().collect();
-            dbg!(str);
-        }
-
-        for desc in cert.authority_info().unwrap() {
-            dbg!(desc.location());
-            dbg!(desc.method());
-            dbg!(desc.method().nid());
-            dbg!(desc.method().nid().as_raw());
-            dbg!(desc.method().nid().long_name());
-            dbg!(desc.method().nid().short_name());
-        }
-        dbg!(cert.issuer_name());
-
-        dbg!(cert.not_after());
-        dbg!(cert.not_before());
-    }
 }

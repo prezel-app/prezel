@@ -104,18 +104,17 @@ impl Github {
         let response = crab
             .repos(owner, name)
             .download_tarball(sha.to_owned())
-            .await
-            .unwrap();
-        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            .await?;
+        let bytes = response.into_body().collect().await?.to_bytes();
         let content = Cursor::new(bytes);
         let mut archive = Archive::new(GzDecoder::new(content));
-        for entry in archive.entries().unwrap() {
-            let mut entry = entry.unwrap();
-            let entry_path = entry.path().unwrap();
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let entry_path = entry.path()?;
             let mut components = entry_path.components();
             components.next();
             let inner_path = components.as_path();
-            entry.unpack(&path.join(inner_path)).unwrap();
+            entry.unpack(&path.join(inner_path))?;
         }
         Ok(())
     }
@@ -154,8 +153,7 @@ impl Github {
         let secret = self.update_token(repo_id).await?;
         Ok(octocrab::OctocrabBuilder::default()
             .user_access_token(secret)
-            .build()
-            .unwrap())
+            .build()?)
     }
 
     #[tracing::instrument]

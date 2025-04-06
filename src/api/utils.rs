@@ -88,7 +88,7 @@ pub(crate) async fn clone_deployment(db: &Db, deployment_id: &NanoId) -> Option<
         timestamp: deployment.timestamp,
         project: deployment.project,
     };
-    db.insert_deployment(insert).await;
+    db.insert_deployment(insert).await.unwrap(); // this is only called from the api
     Some(())
 }
 
