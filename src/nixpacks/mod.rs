@@ -135,6 +135,8 @@ mod provider_tests {
         exec(path, "pwd").await;
         exec(path, "ls").await;
 
+        panic!("");
+
         create_docker_image_with_nixpacks(path, vec!["HOST=0.0.0.0", "PORT=80"])
             .await
             .unwrap();
