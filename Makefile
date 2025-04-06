@@ -9,7 +9,7 @@ openapi:
 	echo '[[bin]]' >> Cargo.toml
 	echo 'name = "openapi"' >> Cargo.toml
 	echo 'path = "src/openapi.rs"' >> Cargo.toml
-	cargo run --bin openapi || (make restore && false)
+	cargo run --release --bin openapi || (make restore && false)
 	make restore
 
 restore:

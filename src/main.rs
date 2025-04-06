@@ -31,8 +31,6 @@ mod tokens;
 mod traces;
 mod utils;
 
-pub(crate) const DOCKER_PORT: u16 = 5046;
-
 #[tokio::main]
 async fn main() {
     let _guard = init_tracing_subscriber();

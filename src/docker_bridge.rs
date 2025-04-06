@@ -6,10 +6,9 @@ use tokio::{
     net::{TcpListener, TcpStream, UnixStream},
 };
 
-use crate::{
-    listener::{Access, Listener},
-    DOCKER_PORT,
-};
+use crate::listener::{Access, Listener};
+
+pub(crate) const DOCKER_PORT: u16 = 5046;
 
 #[derive(Clone)]
 pub(crate) struct DockerBridge {

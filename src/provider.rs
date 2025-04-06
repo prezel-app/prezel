@@ -47,7 +47,9 @@ async fn query(
 ) -> anyhow::Result<Response> {
     let client = reqwest::Client::new();
     let url = format!("{}{path}", conf.provider);
-    let builder = client.request(method, url).bearer_auth(&conf.secret);
+    let builder = client
+        .request(method, url)
+        .bearer_auth(&conf.encoded_secret); // FIXME: should change this at some point, can make it backward compatibly by allowing both secret/jwt on provider side
     let with_body = if let Some(body) = body {
         builder.body(body)
     } else {

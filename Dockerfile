@@ -8,13 +8,14 @@ RUN sed -i 's/openapi = { path = "\.\/client" }//g' Cargo.toml # cargo cheff doe
 RUN cargo chef prepare  --recipe-path recipe.json
 
 FROM chef AS builder
+# ENV DATABASE_URL=sqlite:src.db
 # FIXME: libssl-dev is only actually required for x86, skip for arm64
 RUN apt-get update && apt-get install -y cmake libssl-dev
 RUN cargo install sqlx-cli --version 0.8.2
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN make db && cargo build --release
+RUN cargo build --release
 
 # # FROM alpine:3.20.3
 FROM debian:bookworm-slim

@@ -8,7 +8,7 @@ use bollard::{
     },
     errors::Error as DockerError,
     image::{BuildImageOptions, CreateImageOptions},
-    secret::{BuildInfo, HostConfig},
+    secret::{BuildInfo, HostConfig, ImageInspect},
     Docker,
 };
 use chrono::{DateTime, Utc};
@@ -25,10 +25,7 @@ use std::{
 };
 use utoipa::ToSchema;
 
-use crate::{
-    env::EnvVars,
-    utils::{now_in_seconds, LOWERCASE_PLUS_NUMBERS},
-};
+use crate::{env::EnvVars, utils::LOWERCASE_PLUS_NUMBERS};
 
 #[tracing::instrument]
 pub(crate) fn docker_client() -> Docker {
@@ -134,13 +131,13 @@ fn parse_message(message: Bytes) -> Option<(i64, String)> {
 }
 
 pub(crate) async fn get_managed_image_id(name: &ImageName) -> Option<String> {
-    get_image_id(&name.to_docker_name()).await
+    get_image(&name.to_docker_name()).await?.id
 }
 
-pub(crate) async fn get_image_id(name: &str) -> Option<String> {
+pub(crate) async fn get_image(name: &str) -> Option<ImageInspect> {
     let docker = docker_client();
     let image = docker.inspect_image(name).await;
-    image.ok()?.id
+    image.ok()
 }
 
 pub(crate) async fn get_prezel_image_version() -> Option<String> {

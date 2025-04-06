@@ -52,40 +52,13 @@ async fn get_certs(_auth: AnyRole, state: Data<AppState>) -> impl Responder {
 
 fn prepare_certificate(domain: String, pem: tls::x509::X509) -> Certificate {
     let epoch = Asn1Time::from_unix(0).unwrap();
-
     let diff = epoch.diff(pem.not_after()).unwrap();
     let seconds = diff.days * 24 * 60 * 60 + diff.secs;
-
-    dbg!(seconds);
-    dbg!(seconds as i64 * 1000);
-
-    dbg!(pem.issuer_name());
-    dbg!(pem.subject_name());
-    dbg!(pem.public_key());
-    dbg!(pem.subject_alt_names());
-    for resp in pem.ocsp_responders().unwrap() {
-        let str: String = resp.chars().collect();
-        dbg!(str);
-    }
-    for desc in pem.authority_info().unwrap() {
-        dbg!(desc.location());
-        dbg!(desc.method());
-        dbg!(desc.method().nid());
-        dbg!(desc.method().nid().as_raw());
-        dbg!(desc.method().nid().long_name());
-        dbg!(desc.method().nid().short_name());
-    }
 
     let issuer = pem.issuer_name();
     let issuer_org = get_field_value(issuer, Nid::ORGANIZATIONNAME).unwrap();
     let issuer_country = get_field_value(issuer, Nid::COUNTRYNAME).unwrap();
     let issuer_name = get_field_value(issuer, Nid::COMMONNAME).unwrap();
-    dbg!(get_field_value(issuer, Nid::MS_CSP_NAME));
-    dbg!(get_field_value(issuer, Nid::ISSUER_ALT_NAME));
-    dbg!(get_field_value(issuer, Nid::NETSCAPE_SSL_SERVER_NAME));
-    dbg!(get_field_value(issuer, Nid::NAME_CONSTRAINTS));
-    dbg!(get_field_value(issuer, Nid::COUNTRYNAME));
-    dbg!(get_field_value(issuer, Nid::COMMONNAME));
 
     Certificate {
         domain,

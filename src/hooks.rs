@@ -113,6 +113,7 @@ impl StatusHooks {
                 hostname,
                 provider,
                 secret,
+                ..
             } = Conf::read_async().await; // FIXME: this should be async
             let deployment = hooks
                 .db
@@ -191,14 +192,14 @@ struct GithubCommentApp {
 
 type GithubCommentInfo = HashMap<String, GithubCommentApp>;
 
-fn get_comment_info(comment: &Comment, secret: &str) -> Option<GithubCommentInfo> {
+fn get_comment_info(comment: &Comment, secret: &[u8]) -> Option<GithubCommentInfo> {
     let body = comment.body.as_ref()?;
     let header = body.split("\n").next()?;
     let jwt = header.split("[prezel]: ").last()?;
     decode_token(jwt, secret, false).ok()
 }
 
-fn create_comment(info: GithubCommentInfo, secret: &str) -> String {
+fn create_comment(info: GithubCommentInfo, secret: &[u8]) -> String {
     let rows = info.iter().map(|(name, GithubCommentApp{status, provider_url, preview_url, updated})| {
         let formatted_status = match status {
             // Status::Queued => "⏳ Queued",

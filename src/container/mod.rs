@@ -102,6 +102,18 @@ impl ContainerStatus {
     }
 
     #[tracing::instrument]
+    pub(crate) fn get_image_name(&self) -> Option<&str> {
+        if let Self::Ready { image, .. }
+        | Self::Starting { image, .. }
+        | Self::StandBy { image, .. } = self
+        {
+            Some(image)
+        } else {
+            None
+        }
+    }
+
+    #[tracing::instrument]
     pub(crate) fn to_status(&self) -> Status {
         match self {
             Self::Built => Status::Built,

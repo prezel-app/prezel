@@ -27,7 +27,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
-      - run: make db
       - run: cargo build
       - run: cargo test
       - run: test -f docs/public/openapi.json

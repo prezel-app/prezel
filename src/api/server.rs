@@ -40,7 +40,7 @@ pub(crate) async fn run_api_server(
     db: Db,
     github: Github,
     api_hostname: &str,
-    secret: String,
+    secret: Vec<u8>,
 ) -> Result<(), impl Error> {
     let state = AppState {
         db,

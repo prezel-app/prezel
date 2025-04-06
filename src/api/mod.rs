@@ -9,6 +9,7 @@ use crate::{
         BuildResult, Db, DeploymentWithProject, EditedEnvVar, EnvVar, InsertProject, UpdateProject,
     },
     deployments::{deployment::Deployment, manager::Manager},
+    docker::get_image,
     github::Github,
     logging::{Level, Log},
     sqlite_db::DbAccess,
@@ -81,7 +82,7 @@ pub(crate) struct AppState {
     pub(crate) db: Db,
     pub(crate) manager: Manager,
     pub(crate) github: Github,
-    pub(crate) secret: String,
+    pub(crate) secret: Vec<u8>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -139,6 +140,7 @@ struct ApiDeployment {
     libsql_db: Option<LibsqlDb>,
     status: Status,
     app_container: Option<String>,
+    image_size: Option<i64>,
     // execution_logs: Vec<DockerLog>,
     created: i64,
     build_started: Option<i64>,
@@ -157,10 +159,16 @@ impl ApiDeployment {
         manager: &Manager,
         access: DbAccess,
     ) -> Self {
-        let (status, url, prod_url, custom_urls, app_container, libsql_db) =
+        let (status, url, prod_url, custom_urls, app_container, image_size, libsql_db) =
             if let Some(deployment) = deployment {
                 let container_status = deployment.app_container.status.read().await.clone();
                 let status = container_status.to_status();
+                let image_name = container_status.get_image_name();
+                let image_size = if let Some(name) = image_name {
+                    get_image(name).await.and_then(|image| image.size)
+                } else {
+                    None
+                };
 
                 let url = Some(db_deployment.get_app_base_url(box_domain));
                 let prod_url = is_prod.then_some(db_deployment.get_prod_base_url(box_domain));
@@ -193,14 +201,22 @@ impl ApiDeployment {
                     })
                 };
 
-                (status, url, prod_url, custom_urls, app_container, libsql_db)
+                (
+                    status,
+                    url,
+                    prod_url,
+                    custom_urls,
+                    app_container,
+                    image_size,
+                    libsql_db,
+                )
             } else {
                 let status = match db_deployment.result {
                     Some(BuildResult::Failed) => Status::Failed,
                     Some(BuildResult::Built) => Status::Built,
                     None => Status::Queued,
                 };
-                (status, None, None, vec![], None, None)
+                (status, None, None, vec![], None, None, None)
             };
 
         // TODO: I should have a nested struct for the container related
@@ -217,6 +233,7 @@ impl ApiDeployment {
             libsql_db,
             status,
             app_container,
+            image_size,
             created: db_deployment.created,
             build_started: db_deployment.build_started,
             build_finished: db_deployment.build_finished,
