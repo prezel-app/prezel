@@ -129,13 +129,11 @@ mod provider_tests {
         let tempdir = TempDir::new().unwrap();
         let path = tempdir.as_ref();
 
-        let command = format!("cp -r resources/astro-ssr/ {}", path.to_str().unwrap());
+        let command = format!("cp -r resources/astro-ssr/ {}/", path.to_str().unwrap());
         exec(&PathBuf::from("."), &command).await;
         exec(path, "echo --------------").await;
         exec(path, "pwd").await;
         exec(path, "ls").await;
-
-        panic!("");
 
         create_docker_image_with_nixpacks(path, vec!["HOST=0.0.0.0", "PORT=80"])
             .await
