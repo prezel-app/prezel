@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: pnpm/action-setup@v4
+        with:
+          version: latest
       - name: install sqlx-cli
         run: |
           sudo wget https://github.com/ivy-net/sqlx/releases/download/v0.8.2/sqlx-cli-v0.8.2.x86_64-unknown-linux-musl -O /home/runner/.cargo/bin/cargo-sqlx

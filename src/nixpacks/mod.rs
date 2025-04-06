@@ -136,12 +136,12 @@ mod provider_tests {
             .await
             .unwrap();
 
-        println!(
-            "{}",
-            tokio::fs::read_to_string(path.join("Dockerfile"))
-                .await
-                .unwrap()
-        );
+        // println!(
+        //     "{}",
+        //     tokio::fs::read_to_string(path.join("Dockerfile"))
+        //         .await
+        //         .unwrap()
+        // );
 
         let output = run_container_and_fetch(path, "/prezel.json", "astro-ssr", 8908).await;
         assert_eq!(output, "prezel")
