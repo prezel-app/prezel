@@ -129,7 +129,7 @@ mod provider_tests {
         let tempdir = TempDir::new().unwrap();
         let path = tempdir.as_ref();
 
-        let command = format!("cp -r resources/astro-ssr/ {}/", path.to_str().unwrap());
+        let command = format!("cp -r resources/astro-ssr/. {}", path.to_str().unwrap());
         exec(&PathBuf::from("."), &command).await;
         exec(path, "echo --------------").await;
         exec(path, "pwd").await;
