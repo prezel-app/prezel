@@ -1,12 +1,14 @@
 use anyhow::{anyhow, ensure};
 
+use crate::db::nano_id::NanoId;
+
 /// The prefix of the hostname that refers to a resource of a particular app hosted in the server
 #[derive(Debug, PartialEq)]
 pub(crate) enum Label {
     Prod { project: String },
-    ProdDb { project: String },
+    ProdDb { project: NanoId },
     Deployment { project: String, deployment: String },
-    BranchDb { project: String, deployment: String },
+    BranchDb { project: NanoId, deployment: String },
 }
 
 impl Label {
@@ -47,14 +49,14 @@ fn parse_label(label: &str) -> Option<Label> {
         }),
         [project, sublabel] => match sublabel.split("-").collect::<Vec<_>>().as_slice() {
             ["libsql"] => Some(Label::ProdDb {
-                project: project.to_string(),
+                project: project.to_string().into(),
             }),
             [deployment] => Some(Label::Deployment {
                 project: project.to_string(),
                 deployment: deployment.to_string(),
             }),
             [deployment, "libsql"] => Some(Label::BranchDb {
-                project: project.to_string(),
+                project: project.to_string().into(),
                 deployment: deployment.to_string(),
             }),
             _ => None,
@@ -79,10 +81,10 @@ mod label_tests {
                 deployment: "3fg6fdhj".to_owned(),
             },
             Label::ProdDb {
-                project: "test-project".to_owned(),
+                project: "test-uuid".to_owned().into(),
             },
             Label::BranchDb {
-                project: "test-project".to_owned(),
+                project: "test-uuid".to_owned().into(),
                 deployment: "3fg6fdhj".to_owned(),
             },
         ] {

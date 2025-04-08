@@ -145,23 +145,23 @@ impl Manager {
     #[tracing::instrument]
     async fn get_container_by_label(&self, label: Label) -> Option<Arc<Container>> {
         let map = self.deployments.read().await;
-        match &label {
+        match label {
             Label::Prod { project } => {
-                let deployment = map.get_prod(project)?;
+                let deployment = map.get_prod(&project)?;
                 Some(deployment.app_container.clone())
             }
             Label::Deployment {
                 project,
                 deployment,
             } => {
-                let deployment = map.get_deployment(project, deployment)?;
+                let deployment = map.get_deployment_by_name(&project, deployment)?;
                 Some(deployment.app_container.clone())
             }
             Label::BranchDb {
                 project,
                 deployment,
             } => {
-                let deployment = map.get_deployment(project, deployment)?;
+                let deployment = map.get_deployment_by_id(project, deployment)?;
                 let status = &deployment.app_container.status;
                 status
                     .read()
@@ -170,7 +170,7 @@ impl Manager {
                     .map(|setup| setup.container.clone())
             }
             Label::ProdDb { project } => map
-                .get_prod_db_by_name(project)
+                .get_prod_db(&project)
                 .map(|setup| setup.container.clone()),
         }
     }
