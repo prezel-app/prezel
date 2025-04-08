@@ -49,10 +49,22 @@ impl DeploymentMap {
     }
 
     #[tracing::instrument]
-    pub(crate) fn get_deployment(&self, project: &str, deployment: &str) -> Option<&Deployment> {
-        let project_id = self.names.get(project)?;
-        self.deployments
-            .get(&(project_id.clone(), deployment.to_string()))
+    pub(crate) fn get_deployment_by_name(
+        &self,
+        project: &String,
+        deployment: String,
+    ) -> Option<&Deployment> {
+        let id = self.names.get(project)?;
+        self.get_deployment_by_id(id.clone(), deployment)
+    }
+
+    #[tracing::instrument]
+    pub(crate) fn get_deployment_by_id(
+        &self,
+        project: NanoId,
+        deployment: String,
+    ) -> Option<&Deployment> {
+        self.deployments.get(&(project, deployment))
     }
 
     #[tracing::instrument]
@@ -77,12 +89,6 @@ impl DeploymentMap {
     #[tracing::instrument]
     pub(crate) fn get_prod_db(&self, id: &NanoId) -> Option<SqliteDbSetup> {
         self.dbs.get(id).map(|db| db.setup.clone())
-    }
-
-    #[tracing::instrument]
-    pub(crate) fn get_prod_db_by_name(&self, project: &str) -> Option<SqliteDbSetup> {
-        let id = self.names.get(project)?;
-        self.get_prod_db(id)
     }
 
     #[tracing::instrument]

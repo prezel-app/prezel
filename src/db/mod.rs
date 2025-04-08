@@ -148,13 +148,13 @@ impl DeploymentWithProject {
     pub(crate) fn get_libsql_url(&self, box_domain: &str) -> String {
         if self.default_branch == 1 {
             Label::ProdDb {
-                project: self.project.name.clone(),
+                project: self.project.id.clone(),
             }
             .format_hostname(box_domain)
             .plus_https()
         } else {
             Label::BranchDb {
-                project: self.project.name.clone(),
+                project: self.project.id.clone(),
                 deployment: self.url_id.clone(),
             }
             .format_hostname(box_domain)
