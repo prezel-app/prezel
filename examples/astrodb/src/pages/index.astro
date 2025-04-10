@@ -46,7 +46,7 @@ const messages = await db.select().from(Message).orderBy(desc(Message.created));
                         <img src="https://prezel.app/icon.svg" class="h-16 invert" alt="Prezel Homepage" />
                     </a>
                 </div>
-                <p class="text-gray-600">Say hello to the self-hosting Astro community!</p>
+                <p class="text-gray-600">Say hello to the self-hosting Astro community from a preview!</p>
                	<form class="flex flex-col gap-4 w-96 items-end" method="POST" style="display: grid">
                     <textarea class="w-96 min-h-10 max-h-40 rounded-lg p-2" id="message" name="message" />
                     <button class="mx-auto w-20 h-8 bg-red-300 hover:bg-red-400 rounded-lg" type="submit">Submit</button>
