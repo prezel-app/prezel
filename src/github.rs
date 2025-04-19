@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
+use gitmodules::read_gitmodules;
 use http_body_util::BodyExt;
 use octocrab::{
     models::{issues::Comment, pulls::PullRequest, CommentId, IssueState, Repository},
@@ -7,11 +8,13 @@ use octocrab::{
         checks::{CheckRunConclusion, CheckRunStatus},
         repos::Commitish,
     },
+    repos::GetContentBuilder,
     Octocrab,
 };
 use std::{collections::HashMap, io::Cursor, path::Path, sync::Arc};
 use tar::Archive;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
+use url::Url;
 
 use crate::{provider, utils::now};
 
@@ -96,27 +99,13 @@ impl Github {
     pub(crate) async fn download_commit(
         &self,
         repo_id: i64,
-        sha: &str,
+        sha: String,
         path: &Path,
     ) -> anyhow::Result<()> {
         let crab = self.get_crab(repo_id).await?;
         let (owner, name) = self.get_owner_and_name(repo_id).await?;
-        let response = crab
-            .repos(owner, name)
-            .download_tarball(sha.to_owned())
-            .await?;
-        let bytes = response.into_body().collect().await?.to_bytes();
-        let content = Cursor::new(bytes);
-        let mut archive = Archive::new(GzDecoder::new(content));
-        for entry in archive.entries()? {
-            let mut entry = entry?;
-            let entry_path = entry.path()?;
-            let mut components = entry_path.components();
-            components.next();
-            let inner_path = components.as_path();
-            entry.unpack(&path.join(inner_path))?;
-        }
-        Ok(())
+        let repo_ref = RepoRef { owner, name, sha };
+        download_commit_from_ref(&crab, repo_ref, path).await
     }
 
     #[tracing::instrument]
@@ -178,6 +167,74 @@ impl Github {
             github: self.clone(),
             guard: self.bot_mutex.lock().await,
         }
+    }
+}
+
+#[derive(Debug)]
+struct RepoRef {
+    owner: String,
+    name: String,
+    sha: String,
+}
+
+#[tracing::instrument]
+async fn download_commit_from_ref(
+    crab: &Octocrab,
+    repo_ref: RepoRef,
+    path: &Path,
+) -> anyhow::Result<()> {
+    let RepoRef { owner, name, sha } = repo_ref;
+    let response = crab
+        .repos(&owner, &name)
+        .download_tarball(sha.clone())
+        .await?;
+    let bytes = response.into_body().collect().await?.to_bytes();
+    let content = Cursor::new(bytes);
+    let mut archive = Archive::new(GzDecoder::new(content));
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let entry_path = entry.path()?;
+        let mut components = entry_path.components();
+        components.next();
+        let inner_path = components.as_path();
+        entry.unpack(&path.join(inner_path))?;
+    }
+
+    if let Ok(content) = tokio::fs::read_to_string(path.join(".gitmodules")).await {
+        let modules = read_gitmodules(content.as_bytes())?;
+        for module in modules {
+            if let Some(submodule_path) = module.path() {
+                let repo = crab.repos(&owner, &name);
+                let builder = repo.get_content().path(&submodule_path).r#ref(&sha);
+                if let Some(repo_ref) = parse_submodule(builder).await {
+                    let absolute_path = path.join(submodule_path);
+                    Box::pin(download_commit_from_ref(crab, repo_ref, &absolute_path)).await;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn parse_submodule<'octo, 'r>(builder: GetContentBuilder<'octo, 'r>) -> Option<RepoRef> {
+    let submodule_file = builder.send().await.ok()?;
+    let url = submodule_file.items.into_iter().next()?.git_url?;
+    let parsed = Url::parse(&url).ok()?;
+    let host = parsed.host_str()?;
+    if host == "api.github.com" {
+        let segments = parsed.path_segments()?.collect::<Vec<_>>();
+        if let &["repos", owner, name, "git", "trees", sha] = segments.as_slice() {
+            Some(RepoRef {
+                owner: owner.to_owned(),
+                name: name.to_owned(),
+                sha: sha.to_owned(),
+            })
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 

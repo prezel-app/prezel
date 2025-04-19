@@ -246,6 +246,8 @@ pub(crate) async fn build_dockerfile<O: Future<Output = ()> + Send, F: FnMut(Bui
                 buildargs: buildargs.into(),
                 rm: true,
                 forcerm: true, // rm intermediate containers even if the build fails
+                version: bollard::image::BuilderVersion::BuilderBuildKit,
+                session: Some(name.clone()),
                 ..Default::default()
             },
             None,
@@ -270,6 +272,14 @@ pub(crate) async fn build_dockerfile<O: Future<Output = ()> + Send, F: FnMut(Bui
             output
         })
         .await;
+    // TODO: do this like this, which might potentially relax a lot of the requirements for the process_chunk option
+    // while let Some(Ok(bollard::models::BuildInfo {
+    //        aux: Some(BuildInfoAux::BuildKit(inner)),
+    //        ..
+    //    })) = image_build_stream.next().await
+    //    {
+    //        println!("Response: {:?}", inner);
+    //    }
 
     let image = docker.inspect_image(&name).await?;
     image.id.ok_or(anyhow!("Image not found"))
