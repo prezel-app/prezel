@@ -44,7 +44,7 @@ nanoid = "0.4.0"
 instant-acme = "0.7.1"
 rcgen = "0.13.1"
 nixpacks = "1.28.1"
-bollard = "0.17.1"
+bollard = { version = "0.17.1", features = ["buildkit"] }
 cookie = "0.18.1"
 actix-web = "4.9.0"
 utoipa = { version = "4.2.3", features = ["actix_extras"] }
@@ -87,6 +87,7 @@ ring = "0.17.8"
 actix-web-httpauth = "0.8.2"
 uuid = "1.13.1"
 walkdir = "2.5.0"
+gitmodules = "0.1.0"
 
 
 [dev-dependencies]
@@ -95,3 +96,12 @@ aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-route53 = "1.64.0"
 dotenv = "0.15.0"
 # openapi = { path = "./client" }
+
+[build-dependencies]
+sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite"] }
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "process",
+    "sync",
+] }

@@ -1,4 +1,5 @@
 use anyhow::ensure;
+use bollard::models::BuildInfoAux;
 use std::{
     future::Future,
     path::{Path, PathBuf},
@@ -25,7 +26,6 @@ use super::{
 pub(crate) struct CommitContainer {
     github: Github,
     deployment: NanoId,
-    // main_db_file: HostFile,
     branch_db: Option<BranchSqliteDb>,
     pub(crate) repo_id: i64,
     pub(crate) sha: String,
@@ -122,10 +122,31 @@ impl CommitContainer {
             let tempdir = TempDir::new()?;
             let path = self.build_context(tempdir.as_ref()).await?;
             let image = build_dockerfile(name, &path, self.env.clone(), &mut |chunk| async {
-                if let Some(stream) = chunk.stream {
-                    hooks.on_build_log(&stream, false).await
-                } else if let Some(error) = chunk.error {
-                    hooks.on_build_log(&error, true).await
+                for log in chunk.logs {
+                    hooks
+                        .on_build_log(&String::from_utf8_lossy(&log.msg), false)
+                        .await // FIXME: use time returned by docker in log.timestamp !!!!!!!!!! below as well!!
+                }
+                for vertex in chunk.vertexes {
+                    // FIXME: enable this code below this, but bear in mind that for each layer there are two vertexes:
+                    // - one with the started timestamp, and completed: None
+                    // - a second one with the completed timestamps, cached maybe true and error maybe with some message !!!!
+                    // maybe I want to show them as:
+                    //   STARTED: [3/3] RUN unknown-command
+                    //   FINISHED: [3/3] RUN unknown-command
+                    // Something like this ?????????
+                    // Try to look for existing implementations or approeaches for this, some people opinion  !?!?!?
+
+                    // if vertex.cached {
+                    //     let name = vertex.name;
+                    //     hooks.on_build_log(&format!("{name} (cached)"), false).await;
+                    // } else {
+                    //     hooks.on_build_log(&vertex.name, false).await;
+                    // }
+
+                    if !vertex.error.is_empty() {
+                        hooks.on_build_log(&vertex.error, true).await
+                    }
                 }
             })
             .await?;
@@ -136,14 +157,13 @@ impl CommitContainer {
     #[tracing::instrument]
     async fn build_context(&self, path: &Path) -> anyhow::Result<PathBuf> {
         self.github
-            .download_commit(self.repo_id, &self.sha, &path)
+            .download_commit(self.repo_id, self.sha.clone(), &path)
             .await?;
         ensure!(path.exists());
 
         let inner_path = path.join(&self.root);
 
         if !inner_path.join("Dockerfile").exists() {
-            // self.create_dockerfile_with_nixpacks(&inner_path).await?;
             let env_vec: Vec<String> = self.env.clone().into();
             create_docker_image_with_nixpacks(
                 &inner_path,

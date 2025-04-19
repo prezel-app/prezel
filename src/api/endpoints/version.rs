@@ -94,7 +94,7 @@ async fn run_update_container(version: &str) -> anyhow::Result<()> {
     ]
     .join(" ");
 
-    let image = "alpine/curl".to_owned();
+    let image = "alpine/curl:8.12.1".to_owned();
     pull_image(&image).await;
     let binds = vec!["/var/run/docker.sock:/var/run/docker.sock".to_owned()];
     let name = generate_unmanaged_container_name();

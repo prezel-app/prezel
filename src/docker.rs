@@ -1,12 +1,12 @@
 // TODO: maybe this should be as well on the container module
 
 use anyhow::anyhow;
+use bollard::models::BuildInfoAux;
 use bollard::{
     container::{
         Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
         NetworkingConfig, StartContainerOptions,
     },
-    errors::Error as DockerError,
     image::{BuildImageOptions, CreateImageOptions},
     secret::{BuildInfo, HostConfig, ImageInspect},
     Docker,
@@ -224,7 +224,10 @@ pub(crate) async fn run_container(id: &str) -> Result<(), impl Error> {
 }
 
 // #[tracing::instrument]
-pub(crate) async fn build_dockerfile<O: Future<Output = ()> + Send, F: FnMut(BuildInfo) -> O>(
+pub(crate) async fn build_dockerfile<
+    O: Future<Output = ()>,
+    F: FnMut(bollard::moby::buildkit::v1::StatusResponse) -> O,
+>(
     name: ImageName,
     path: &Path,
     buildargs: EnvVars,
@@ -239,37 +242,24 @@ pub(crate) async fn build_dockerfile<O: Future<Output = ()> + Send, F: FnMut(Bui
 
     let docker = docker_client();
 
-    docker
-        .build_image(
-            BuildImageOptions {
-                t: name.clone(),
-                buildargs: buildargs.into(),
-                rm: true,
-                forcerm: true, // rm intermediate containers even if the build fails
-                ..Default::default()
-            },
-            None,
-            Some(tar_content.into()),
-        )
-        .for_each(|chunk| {
-            let output: Pin<Box<dyn Future<Output = ()> + Send>> = match chunk {
-                // chunk.id // TODO: use this as the image id so I don't have to generate one?
-                //     // chunk.aux // or maybe this
-                Ok(chunk) => Box::pin(process_chunk(chunk)),
-                Err(error) => {
-                    if let DockerError::DockerStreamError { error } = error {
-                        Box::pin(process_chunk(BuildInfo {
-                            error: Some(error),
-                            ..Default::default() // TODO: this is a bit hacky, is this really equivalent
-                        }))
-                    } else {
-                        Box::pin(future::ready(()))
-                    }
-                }
-            };
-            output
-        })
-        .await;
+    let mut build_stream = docker.build_image(
+        BuildImageOptions {
+            t: name.clone(),
+            buildargs: buildargs.into(),
+            rm: true,
+            forcerm: true, // rm intermediate containers even if the build fails
+            version: bollard::image::BuilderVersion::BuilderBuildKit,
+            session: Some(name.clone()), // the idea of using the name as session id comes from some bollard example
+            ..Default::default()
+        },
+        None,
+        Some(tar_content.into()),
+    );
+    while let Some(Ok(BuildInfo { aux, .. })) = build_stream.next().await {
+        if let Some(BuildInfoAux::BuildKit(log)) = aux {
+            process_chunk(log);
+        }
+    }
 
     let image = docker.inspect_image(&name).await?;
     image.id.ok_or(anyhow!("Image not found"))
