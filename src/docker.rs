@@ -257,10 +257,10 @@ pub(crate) async fn build_dockerfile<
     );
     while let Some(Ok(BuildInfo { aux, .. })) = build_stream.next().await {
         if let Some(BuildInfoAux::BuildKit(log)) = aux {
-            process_chunk(log);
+            process_chunk(log).await;
         }
     }
-
+    // TODO: return from here a stream of logs and a final status at the end, which is a Result (the thing returned below)
     let image = docker.inspect_image(&name).await?;
     image.id.ok_or(anyhow!("Image not found"))
 }
