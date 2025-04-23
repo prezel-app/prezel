@@ -128,22 +128,14 @@ impl CommitContainer {
                         .await // FIXME: use time returned by docker in log.timestamp !!!!!!!!!! below as well!!
                 }
                 for vertex in chunk.vertexes {
-                    // FIXME: enable this code below this, but bear in mind that for each layer there are two vertexes:
-                    // - one with the started timestamp, and completed: None
-                    // - a second one with the completed timestamps, cached maybe true and error maybe with some message !!!!
-                    // maybe I want to show them as:
-                    //   STARTED: [3/3] RUN unknown-command
-                    //   FINISHED: [3/3] RUN unknown-command
-                    // Something like this ?????????
-                    // Try to look for existing implementations or approeaches for this, some people opinion  !?!?!?
-
-                    // if vertex.cached {
-                    //     let name = vertex.name;
-                    //     hooks.on_build_log(&format!("{name} (cached)"), false).await;
-                    // } else {
-                    //     hooks.on_build_log(&vertex.name, false).await;
-                    // }
-
+                    if vertex.completed.is_some() {
+                        if vertex.cached {
+                            let name = vertex.name;
+                            hooks.on_build_log(&format!("CACHED {name}"), false).await;
+                        } else {
+                            hooks.on_build_log(&vertex.name, false).await;
+                        }
+                    }
                     if !vertex.error.is_empty() {
                         hooks.on_build_log(&vertex.error, true).await
                     }
