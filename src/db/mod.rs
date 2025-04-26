@@ -1,5 +1,6 @@
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
+use config::{BuildBackend, Visibility};
 use futures::{stream, StreamExt};
 use nano_id::{MaybeNanoId, NanoId};
 use nanoid::nanoid;
@@ -9,15 +10,18 @@ use tracing::info;
 use utoipa::ToSchema;
 
 use crate::{
+    deployments::config::{from_opt_str, DeploymentConfig, FlatDeploymentConfig},
     label::Label,
     paths::get_instance_db_path,
     utils::{now, PlusHttps, LOWERCASE_PLUS_NUMBERS},
 };
 
+pub(crate) mod config;
 pub(crate) mod nano_id;
 
-#[derive(sqlx::Type, PartialEq, Clone, Copy, Debug)]
-#[sqlx(rename_all = "lowercase")]
+#[derive(sqlx::Type, Deserialize, PartialEq, Clone, Copy, Debug)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(rename_all = "lowercase")] // TODO: have a string in InsertDeployment instead?
 pub(crate) enum BuildResult {
     Built,
     Failed,
@@ -42,10 +46,14 @@ struct PlainDeployment {
     pub(crate) sha: String,
     pub(crate) branch: String, // I might need to have here a list of prs somehow
     pub(crate) default_branch: i64,
-    pub(crate) result: Option<BuildResult>,
+    pub(crate) result: Option<String>,
     pub(crate) build_started: Option<i64>,
     pub(crate) build_finished: Option<i64>,
     pub(crate) project: NanoId,
+    pub(crate) config_visibility: Option<String>,
+    pub(crate) config_build_backend: Option<String>,
+    pub(crate) config_dockerfile_path: Option<String>,
+    pub(crate) deleted: Option<i64>, // ignored, only used for filtering in the SQL select
 }
 
 #[derive(Debug)]
@@ -61,6 +69,7 @@ pub(crate) struct Deployment {
     pub(crate) build_started: Option<i64>,
     pub(crate) build_finished: Option<i64>,
     pub(crate) project: NanoId,
+    pub(crate) config: DeploymentConfig,
     pub(crate) env: Vec<EnvVar>,
 }
 
@@ -179,6 +188,7 @@ pub(crate) struct InsertDeployment {
     pub(crate) branch: String,
     pub(crate) default_branch: i64,
     pub(crate) project: NanoId,
+    pub(crate) result: Option<BuildResult>,
 }
 
 fn create_deployment_url_id() -> String {
@@ -400,38 +410,51 @@ impl Db {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn get_deployment(&self, deployment: &NanoId) -> Option<Deployment> {
+    pub(crate) async fn get_deployment(
+        &self,
+        deployment: &NanoId,
+    ) -> anyhow::Result<Option<Deployment>> {
         let plain_deployment = sqlx::query_as!(
             PlainDeployment,
-            r#"select id, slug, timestamp, created, sha, branch, default_branch, result as "result: BuildResult", build_started, build_finished,project from deployments where id = ? and deleted is null"#,
+            r#"select * from deployments where id = ? and deleted is null"#,
             deployment
         )
         .fetch_optional(&self.conn)
-        .await
-        .unwrap()?;
+        .await?;
 
-        Some(self.append_extra_deployment_info(plain_deployment).await)
+        if let Some(plain_deployment) = plain_deployment {
+            Ok(Some(
+                self.append_extra_deployment_info(plain_deployment).await?,
+            ))
+        } else {
+            Ok(None)
+        }
     }
 
     // TODO: just return stream here?
     #[tracing::instrument]
-    pub(crate) async fn get_deployments(&self) -> Vec<Deployment> {
+    pub(crate) async fn get_deployments(&self) -> anyhow::Result<Vec<Deployment>> {
         let deployments = sqlx::query_as!(
             PlainDeployment,
-            r#"select id, slug, timestamp, created, sha, branch, default_branch, result as "result: BuildResult", build_started, build_finished, project from deployments where deleted is null"#
+            r#"select * from deployments where deleted is null"#
         )
         .fetch_all(&self.conn)
-        .await
-        .unwrap();
+        .await?;
 
-        stream::iter(deployments)
-            .then(|deployment| self.append_extra_deployment_info(deployment))
+        Ok(stream::iter(deployments)
+            .filter_map(|deployment| async {
+                let result = self.append_extra_deployment_info(deployment).await;
+                result.inspect_err(|e| panic!("{e}")).ok() // TODO: stop filtering, return error instead
+            })
             .collect()
-            .await
+            .await)
     }
 
     #[tracing::instrument]
-    async fn append_extra_deployment_info(&self, deployment: PlainDeployment) -> Deployment {
+    async fn append_extra_deployment_info(
+        &self,
+        deployment: PlainDeployment,
+    ) -> anyhow::Result<Deployment> {
         let env = sqlx::query_as!(
             EnvVar,
             "select name, value from deployment_env where deployment = ?",
@@ -441,7 +464,17 @@ impl Db {
         .await
         .unwrap();
 
-        Deployment {
+        let flat = FlatDeploymentConfig {
+            visibility: deployment.config_visibility, // TODO: maybe move this conversion into From<FlatDeploymentConfig>
+            backend: deployment.config_build_backend,
+            dockerfile_path: deployment.config_dockerfile_path,
+        };
+        let config = flat
+            .clone()
+            .try_into()
+            .inspect_err(|e| panic!("{flat:?}\n{e}"));
+
+        Ok(Deployment {
             id: deployment.id,
             url_id: deployment.slug,
             timestamp: deployment.timestamp,
@@ -449,12 +482,13 @@ impl Db {
             sha: deployment.sha,
             branch: deployment.branch,
             default_branch: deployment.default_branch,
-            result: deployment.result,
+            result: from_opt_str(deployment.result)?,
             build_started: deployment.build_started,
             build_finished: deployment.build_finished,
             project: deployment.project,
+            config: config?,
             env,
-        }
+        })
     }
 
     #[tracing::instrument]
@@ -470,60 +504,70 @@ impl Db {
     pub(crate) async fn get_latest_successful_prod_deployment_for_project(
         &self,
         project: &NanoId,
-    ) -> Option<Deployment> {
+    ) -> anyhow::Result<Option<Deployment>> {
         let mut deployments: Vec<_> = self
             .get_deployments()
-            .await
+            .await?
             .into_iter()
             .filter(|deployment| &deployment.project == project && deployment.is_default_branch())
             .filter(|deployment| deployment.result != Some(BuildResult::Failed))
             .collect();
         deployments.sort_by_key(|deployment| deployment.timestamp);
-        deployments.pop()
+        Ok(deployments.pop())
     }
 
     #[tracing::instrument]
     pub(crate) async fn get_deployment_with_project(
         &self,
         deployment: &NanoId,
-    ) -> Option<DeploymentWithProject> {
+    ) -> anyhow::Result<Option<DeploymentWithProject>> {
         let deployment = self.get_deployment(deployment).await?;
-        let project = self.get_project(&deployment.project).await?;
-        Some(DeploymentWithProject {
-            project: project.into(),
-            deployment,
-        })
+        if let Some(deployment) = deployment {
+            let project = self.get_project(&deployment.project).await;
+            if let Some(project) = project {
+                Ok(Some(DeploymentWithProject {
+                    project: project.into(),
+                    deployment,
+                }))
+            } else {
+                Ok(None) // FIXME: return error if project does not exist????????????
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     #[tracing::instrument]
     pub(crate) async fn get_deployments_with_project(
         &self,
-    ) -> impl Iterator<Item = DeploymentWithProject> {
+    ) -> anyhow::Result<impl Iterator<Item = DeploymentWithProject>> {
         let project_iter = self.get_projects().await.into_iter();
         let projects: HashMap<_, Arc<_>> = project_iter
             .map(|project| (project.id.clone(), project.into()))
             .collect();
-        self.get_deployments()
-            .await
+        Ok(self
+            .get_deployments()
+            .await?
             .into_iter()
             .filter_map(move |deployment| {
                 Some(DeploymentWithProject {
                     project: projects.get(&deployment.project)?.clone(),
                     deployment,
                 })
-            })
+            }))
     }
 
     #[tracing::instrument]
     pub(crate) async fn insert_deployment(
         &self,
         deployment: InsertDeployment,
-    ) -> anyhow::Result<()> {
+        config: FlatDeploymentConfig,
+    ) -> anyhow::Result<NanoId> {
         let created = now();
         let id = NanoId::random();
         let url_id = create_deployment_url_id();
         sqlx::query!(
-            "insert into deployments (id, slug, timestamp, created, sha, branch, default_branch, project) values (?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into deployments (id, slug, timestamp, created, sha, branch, default_branch, project, result, config_visibility, config_build_backend, config_dockerfile_path) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             url_id,
             deployment.timestamp,
@@ -531,7 +575,11 @@ impl Db {
             deployment.sha,
             deployment.branch,
             deployment.default_branch,
-            deployment.project
+            deployment.project,
+            deployment.result,
+            config.visibility,
+            config.backend,
+            config.dockerfile_path,
         )
         .execute(&self.conn)
         .await?;
@@ -546,7 +594,7 @@ impl Db {
             .await
             .unwrap(); // TODO: do this query in a single transaction with the one above
         }
-        Ok(())
+        Ok(id)
     }
 
     #[tracing::instrument]

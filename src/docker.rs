@@ -230,6 +230,7 @@ pub(crate) async fn build_dockerfile<
 >(
     name: ImageName,
     path: &Path,
+    dockerfile: String,
     buildargs: EnvVars,
     process_chunk: &mut F,
 ) -> anyhow::Result<String> {
@@ -245,6 +246,7 @@ pub(crate) async fn build_dockerfile<
     let mut build_stream = docker.build_image(
         BuildImageOptions {
             t: name.clone(),
+            dockerfile,
             buildargs: buildargs.into(),
             rm: true,
             forcerm: true, // rm intermediate containers even if the build fails

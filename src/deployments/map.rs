@@ -106,7 +106,11 @@ impl DeploymentMap {
         github: &Github,
         db: &Db,
     ) {
-        let required_deployments = db.get_deployments_with_project().await.collect::<Vec<_>>();
+        let required_deployments = db
+            .get_deployments_with_project()
+            .await
+            .unwrap()
+            .collect::<Vec<_>>();
 
         let required_ids = required_deployments
             .iter()

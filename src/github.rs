@@ -1,6 +1,7 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use flate2::read::GzDecoder;
 use gitmodules::read_gitmodules;
+use http::StatusCode;
 use http_body_util::BodyExt;
 use octocrab::{
     models::{issues::Comment, pulls::PullRequest, CommentId, IssueState, Repository},
@@ -9,7 +10,7 @@ use octocrab::{
         repos::Commitish,
     },
     repos::GetContentBuilder,
-    Octocrab,
+    Error as OctoError, GitHubError, Octocrab,
 };
 use std::{collections::HashMap, io::Cursor, path::Path, sync::Arc};
 use tar::Archive;
@@ -108,25 +109,39 @@ impl Github {
         download_commit_from_ref(&crab, repo_ref, path).await
     }
 
+    /// None means the file does not exist
     #[tracing::instrument]
     pub(crate) async fn download_file(
         &self,
         repo_id: i64,
         sha: &str,
         path: &str,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<Option<String>> {
         let crab = self.get_crab(repo_id).await?;
         let (owner, name) = self.get_owner_and_name(repo_id).await?;
-        let mut contents = crab
+        let result = crab
             .repos(owner, name)
             .get_content()
             .path(path)
             .r#ref(sha)
             .send()
-            .await?;
-        let content = contents.take_items().pop().ok_or(anyhow!("no content"))?;
-        let decoded = content.decoded_content();
-        decoded.ok_or(anyhow!("invalid content"))
+            .await;
+        match result {
+            Ok(mut contents) => {
+                let content = contents.take_items().pop();
+                content
+                    .map(|content| content.decoded_content().ok_or(anyhow!("invalid content")))
+                    .transpose()
+            }
+            Err(OctoError::GitHub { source, .. }) => {
+                if source.status_code == StatusCode::NOT_FOUND {
+                    Ok(None)
+                } else {
+                    bail!(source);
+                }
+            }
+            Err(error) => bail!(error),
+        }
     }
 
     // TODO: make this receive crab as argument

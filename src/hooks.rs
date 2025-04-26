@@ -119,6 +119,7 @@ impl StatusHooks {
                 .db
                 .get_deployment_with_project(&hooks.id)
                 .await
+                .unwrap()
                 .unwrap();
             let repo_id = deployment.project.repo_id;
             let prs = hooks.github.get_open_pulls(repo_id).await.unwrap();

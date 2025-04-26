@@ -1,5 +1,4 @@
 use anyhow::ensure;
-use bollard::models::BuildInfoAux;
 use std::{
     future::Future,
     path::{Path, PathBuf},
@@ -9,6 +8,7 @@ use tempfile::TempDir;
 
 use crate::{
     db::nano_id::NanoId,
+    deployments::config::DeploymentConfig,
     docker::{get_managed_image_id, ImageName},
     env::EnvVars,
     github::Github,
@@ -31,6 +31,7 @@ pub(crate) struct CommitContainer {
     pub(crate) sha: String,
     env: EnvVars,
     root: String,
+    config: DeploymentConfig,
 }
 
 impl CommitContainer {
@@ -51,6 +52,7 @@ impl CommitContainer {
         // cloned_db_file: Option<HostFile>,
         initial_status: ContainerStatus,
         result: Option<BuildResult>,
+        config: DeploymentConfig,
     ) -> Container {
         let (branch_db, token) = if branch {
             let branch_db = prod_db.branch(&deployment);
@@ -81,6 +83,7 @@ impl CommitContainer {
             sha,
             env: extended_env.clone(),
             root,
+            config,
         };
 
         Container::new(
@@ -120,34 +123,40 @@ impl CommitContainer {
             Ok(image)
         } else {
             let tempdir = TempDir::new()?;
-            let path = self.build_context(tempdir.as_ref()).await?;
-            let image = build_dockerfile(name, &path, self.env.clone(), &mut |chunk| async {
-                for log in chunk.logs {
-                    hooks
-                        .on_build_log(&String::from_utf8_lossy(&log.msg), false)
-                        .await // FIXME: use time returned by docker in log.timestamp !!!!!!!!!! below as well!!
-                }
-                for vertex in chunk.vertexes {
-                    if vertex.completed.is_some() {
-                        if vertex.cached {
-                            let name = vertex.name;
-                            hooks.on_build_log(&format!("CACHED {name}"), false).await;
-                        } else {
-                            hooks.on_build_log(&vertex.name, false).await;
+            let (path, dockerfile) = self.build_context(tempdir.as_ref()).await?;
+            let image = build_dockerfile(
+                name,
+                &path,
+                dockerfile,
+                self.env.clone(),
+                &mut |chunk| async {
+                    for log in chunk.logs {
+                        hooks
+                            .on_build_log(&String::from_utf8_lossy(&log.msg), false)
+                            .await // FIXME: use time returned by docker in log.timestamp !!!!!!!!!! below as well!!
+                    }
+                    for vertex in chunk.vertexes {
+                        if vertex.completed.is_some() {
+                            if vertex.cached {
+                                let name = vertex.name;
+                                hooks.on_build_log(&format!("CACHED {name}"), false).await;
+                            } else {
+                                hooks.on_build_log(&vertex.name, false).await;
+                            }
+                        }
+                        if !vertex.error.is_empty() {
+                            hooks.on_build_log(&vertex.error, true).await
                         }
                     }
-                    if !vertex.error.is_empty() {
-                        hooks.on_build_log(&vertex.error, true).await
-                    }
-                }
-            })
+                },
+            )
             .await?;
             Ok(image)
         }
     }
 
     #[tracing::instrument]
-    async fn build_context(&self, path: &Path) -> anyhow::Result<PathBuf> {
+    async fn build_context(&self, path: &Path) -> anyhow::Result<(PathBuf, String)> {
         self.github
             .download_commit(self.repo_id, self.sha.clone(), &path)
             .await?;
@@ -155,16 +164,22 @@ impl CommitContainer {
 
         let inner_path = path.join(&self.root);
 
-        if !inner_path.join("Dockerfile").exists() {
+        let default_dockerfile = "Dockerfile".to_owned();
+        let default_dockerfile_present = inner_path.join(&default_dockerfile).exists();
+
+        if let Some(dockerfile) = self.config.get_forced_dockerfile() {
+            Ok((inner_path, dockerfile.to_owned()))
+        } else if self.config.is_forced_nixpacks() || !default_dockerfile_present {
             let env_vec: Vec<String> = self.env.clone().into();
             create_docker_image_with_nixpacks(
                 &inner_path,
                 env_vec.iter().map(String::as_str).collect(),
             )
             .await?;
+            Ok((inner_path, default_dockerfile))
+        } else {
+            Ok((inner_path, default_dockerfile))
         }
-
-        Ok(inner_path)
     }
 }
 
