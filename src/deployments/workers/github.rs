@@ -16,59 +16,68 @@ impl Worker for GithubWorker {
     #[tracing::instrument]
     fn work(&self) -> impl std::future::Future<Output = ()> + Send {
         async {
-            for Project {
-                repo_id,
-                env,
-                id,
-                root,
-                name,
-                ..
-            } in self.db.get_projects().await
-            {
-                let commit = self.get_default_branch_and_latest_commit(repo_id).await;
-                match commit {
-                    Ok((default_branch, commit)) => {
+            // if there is some error when trying to read from the db, we simply skip the work
+            let _ = self.github_work().await.inspect_err(|e| error!("{e}"));
+        }
+    }
+}
+
+impl GithubWorker {
+    #[tracing::instrument]
+    async fn github_work(&self) -> anyhow::Result<()> {
+        for Project {
+            repo_id,
+            env,
+            id,
+            root,
+            name,
+            ..
+        } in self.db.get_projects().await?
+        {
+            let commit = self.get_default_branch_and_latest_commit(repo_id).await;
+            match commit {
+                Ok((default_branch, commit)) => {
+                    let deployment = InsertDeployment {
+                        env: env.to_owned(),
+                        sha: commit.sha,
+                        timestamp: commit.timestamp,
+                        branch: default_branch,
+                        default_branch: 1, // TODO: abstract this as a bool
+                        project: id.clone(),
+                        result: None,
+                    };
+                    self.add_deployment_to_db_if_missing(deployment, repo_id, &root, &name)
+                        .await;
+                }
+                Err(error) => error!("{error}"),
+            }
+
+            let pull_results = self.github.get_open_pulls(repo_id).await;
+            let pulls = pull_results
+                .inspect_err(|error| error!("{error}"))
+                .unwrap_or(vec![]);
+            for pull in pulls {
+                let branch = pull.head.ref_field;
+                // FIXME: some duplicated code in here as in above
+                match self.github.get_latest_commit(repo_id, &branch).await {
+                    Ok(commit) => {
                         let deployment = InsertDeployment {
                             env: env.to_owned(),
                             sha: commit.sha,
                             timestamp: commit.timestamp,
-                            branch: default_branch,
-                            default_branch: 1, // TODO: abstract this as a bool
+                            branch,
+                            default_branch: 0, // TODO: abstract this as a bool
                             project: id.clone(),
                             result: None,
                         };
                         self.add_deployment_to_db_if_missing(deployment, repo_id, &root, &name)
                             .await;
                     }
-                    Err(error) => error!("{error:?}"),
-                }
-
-                let pull_results = self.github.get_open_pulls(repo_id).await;
-                let pulls = pull_results
-                    .inspect_err(|error| error!("{error:?}"))
-                    .unwrap_or(vec![]);
-                for pull in pulls {
-                    let branch = pull.head.ref_field;
-                    // FIXME: some duplicated code in here as in above
-                    match self.github.get_latest_commit(repo_id, &branch).await {
-                        Ok(commit) => {
-                            let deployment = InsertDeployment {
-                                env: env.to_owned(),
-                                sha: commit.sha,
-                                timestamp: commit.timestamp,
-                                branch,
-                                default_branch: 0, // TODO: abstract this as a bool
-                                project: id.clone(),
-                                result: None,
-                            };
-                            self.add_deployment_to_db_if_missing(deployment, repo_id, &root, &name)
-                                .await;
-                        }
-                        Err(error) => error!("{error:?}"),
-                    }
+                    Err(error) => error!("{error}"),
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -94,11 +103,12 @@ impl GithubWorker {
         root: &str,
         app_name: &str,
     ) {
-        if !self
+        let exists = self
             .db
             .hash_exists_for_project(&deployment.sha, &deployment.project)
             .await
-        {
+            .inspect_err(|e| error!("{e}"));
+        if let Ok(false) = exists {
             let (config, error) = match DeploymentConfig::fetch_from_repo(
                 &self.github,
                 repo_id,
@@ -118,13 +128,14 @@ impl GithubWorker {
                 .db
                 .insert_deployment(deployment, config.into())
                 .await
-                .inspect_err(|e| error!("{e:?}"));
+                .inspect_err(|e| error!("{e}"));
 
             if let (Some(error), Ok(id)) = (error, id) {
-                dbg!(&error);
-                self.db
+                let _ = self
+                    .db
                     .insert_deployment_build_log(&id, &error.to_string(), true)
-                    .await;
+                    .await
+                    .inspect_err(|e| error!("{e}"));
             }
         }
     }

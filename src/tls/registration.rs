@@ -75,7 +75,7 @@ async fn get_challenge(order: &mut Order, challenge_type: ChallengeType) -> Arc<
     // wait for the authorization to be pending
     while authorization.status != AuthorizationStatus::Pending {
         if authorization.status != AuthorizationStatus::Valid {
-            panic!("Unrecognized authroization status");
+            panic!("Unrecognized authorization status");
         }
         sleep(Duration::from_secs(1)).await
     }

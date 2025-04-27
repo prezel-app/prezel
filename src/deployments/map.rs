@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::{stream, Stream, StreamExt};
+use tracing::error;
 
 use crate::{
     container::{Container, ContainerStatus},
@@ -105,12 +106,8 @@ impl DeploymentMap {
         build_queue: &WorkerHandle,
         github: &Github,
         db: &Db,
-    ) {
-        let required_deployments = db
-            .get_deployments_with_project()
-            .await
-            .unwrap()
-            .collect::<Vec<_>>();
+    ) -> anyhow::Result<()> {
+        let required_deployments = db.get_deployments_with_project().await?.collect::<Vec<_>>();
 
         let required_ids = required_deployments
             .iter()
@@ -177,7 +174,7 @@ impl DeploymentMap {
                     .await;
                     self.deployments.insert((project, url_id), deployment);
                 } else {
-                    panic!("illegal state, no prod bd found for deployment"); // TODO: remove this panic, make it imposible
+                    error!("illegal state, no prod bd found for deployment"); // TODO: make this impossible
                 }
             }
         }
@@ -279,6 +276,8 @@ impl DeploymentMap {
         for container in self.get_all_non_prod_containers().await {
             container.downgrade_if_unused().await;
         }
+
+        Ok(())
     }
 
     #[tracing::instrument]

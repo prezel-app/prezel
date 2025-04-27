@@ -6,7 +6,6 @@ use futures::{stream, Stream, StreamExt};
 
 use crate::container::commit::CommitContainer;
 use crate::container::ContainerStatus;
-use crate::db::config::Visibility;
 use crate::db::{nano_id::NanoId, BuildResult, Deployment as DbDeployment};
 use crate::hooks::StatusHooks;
 use crate::sqlite_db::ProdSqliteDb;
@@ -17,6 +16,7 @@ use crate::{
     github::Github,
 };
 
+use super::config::Visibility;
 use super::worker::WorkerHandle;
 
 #[derive(Debug, Clone)]

@@ -52,7 +52,11 @@ async fn delete_deployment(
     state: Data<AppState>,
     id: Path<String>,
 ) -> impl Responder {
-    state.db.delete_deployment(&id.into_inner().into()).await;
+    state
+        .db
+        .delete_deployment(&id.into_inner().into())
+        .await
+        .unwrap();
     state.manager.sync_with_db().await;
     HttpResponse::Ok()
 }
@@ -138,6 +142,7 @@ async fn get_deployment_build_logs(
         .db
         .get_deployment_build_logs(&id)
         .await
+        .unwrap()
         .into_iter()
         .map(|log| log.into())
         .collect();

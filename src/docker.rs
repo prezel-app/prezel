@@ -18,10 +18,9 @@ use nanoid::nanoid;
 use serde::Serialize;
 use std::{
     error::Error,
-    future::{self, Future},
+    future::Future,
     net::Ipv4Addr,
     path::{Path, PathBuf},
-    pin::Pin,
 };
 use utoipa::ToSchema;
 
@@ -312,7 +311,7 @@ pub(crate) async fn list_managed_container_names() -> anyhow::Result<impl Iterat
 
 #[cfg(test)]
 mod docker_tests {
-    use crate::docker::{create_container, get_bollard_container_ipv4, run_container};
+    // use crate::docker::{create_container, get_bollard_container_ipv4, run_container};
 
     // #[tokio::test]
     // async fn test_list_containers() {

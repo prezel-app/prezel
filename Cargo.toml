@@ -5,8 +5,6 @@ edition = "2021"
 rust-version = "1.80.0"
 default-run = "main"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [[bin]]
 name = "main"
 path = "src/main.rs"

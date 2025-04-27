@@ -1,7 +1,6 @@
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
-use config::{BuildBackend, Visibility};
-use futures::{stream, StreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 use nano_id::{MaybeNanoId, NanoId};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
@@ -16,7 +15,6 @@ use crate::{
     utils::{now, PlusHttps, LOWERCASE_PLUS_NUMBERS},
 };
 
-pub(crate) mod config;
 pub(crate) mod nano_id;
 
 #[derive(sqlx::Type, Deserialize, PartialEq, Clone, Copy, Debug)]
@@ -202,90 +200,83 @@ pub(crate) struct Db {
 
 impl Db {
     #[tracing::instrument]
-    pub(crate) async fn setup() -> Self {
+    pub(crate) async fn setup() -> anyhow::Result<Self> {
         let db_path = get_instance_db_path();
         let db_path_str = db_path.to_str().expect("Path to DB coud not be generated");
 
-        // ensure that the db file exists
-        // create_dir_all(app_dir).unwrap();
         if !db_path.exists() {
-            std::fs::File::create_new(&db_path).unwrap();
+            std::fs::File::create_new(&db_path)?;
         }
 
-        let conn = SqlitePool::connect(db_path_str)
-            .await
-            .expect("Failed to connect to the app DB");
+        let conn = SqlitePool::connect(db_path_str).await?;
 
-        sqlx::migrate!("./migrations").run(&conn).await.unwrap();
+        sqlx::migrate!("./migrations").run(&conn).await?;
 
-        info!(
-            "db setup at {}",
-            db_path.canonicalize().unwrap().to_str().unwrap()
-        );
+        info!("db setup at {}", db_path.canonicalize()?.display());
 
-        Self { conn }
+        Ok(Self { conn })
     }
 
     // TODO: try to make the manager have access only to the read methods in here
     #[tracing::instrument]
-    pub(crate) async fn get_project(&self, id: &NanoId) -> Option<Project> {
-        let project = sqlx::query_as!(
+    pub(crate) async fn get_project(&self, id: &NanoId) -> anyhow::Result<Option<Project>> {
+        let query = sqlx::query_as!(
             PlainProject,
             "select * from projects where projects.id = ?",
             id
-        )
-        .fetch_optional(&self.conn)
-        .await
-        .unwrap()?;
-
-        Some(self.append_extra_project_info(project).await)
+        );
+        let project = query.fetch_optional(&self.conn).await?;
+        self.append_extra_project_info_to_opt(project).await
     }
 
     #[tracing::instrument]
-    pub(crate) async fn get_project_by_name(&self, name: &str) -> Option<Project> {
-        let project = sqlx::query_as!(
+    pub(crate) async fn get_project_by_name(&self, name: &str) -> anyhow::Result<Option<Project>> {
+        let query = sqlx::query_as!(
             PlainProject,
             "select * from projects where projects.name = ?",
             name
-        )
-        .fetch_optional(&self.conn)
-        .await
-        .unwrap()?;
-        Some(self.append_extra_project_info(project).await)
+        );
+        let project = query.fetch_optional(&self.conn).await?;
+        self.append_extra_project_info_to_opt(project).await
+    }
+
+    async fn append_extra_project_info_to_opt(
+        &self,
+        project: Option<PlainProject>,
+    ) -> anyhow::Result<Option<Project>> {
+        if let Some(project) = project {
+            Ok(Some(self.append_extra_project_info(project).await?))
+        } else {
+            Ok(None)
+        }
     }
 
     #[tracing::instrument]
-    pub(crate) async fn get_projects(&self) -> Vec<Project> {
-        let projects = sqlx::query_as!(PlainProject, "select * from projects")
-            .fetch_all(&self.conn)
-            .await
-            .unwrap();
-
+    pub(crate) async fn get_projects(&self) -> anyhow::Result<Vec<Project>> {
+        let query = sqlx::query_as!(PlainProject, "select * from projects");
+        let projects = query.fetch_all(&self.conn).await?;
         stream::iter(projects)
             .then(|project| self.append_extra_project_info(project))
-            .collect()
+            .try_collect()
             .await
     }
 
     #[tracing::instrument]
-    async fn append_extra_project_info(&self, project: PlainProject) -> Project {
+    async fn append_extra_project_info(&self, project: PlainProject) -> anyhow::Result<Project> {
         let custom_domains = sqlx::query!("select * from domains where project = ?", project.id)
             .fetch_all(&self.conn)
-            .await
-            .unwrap()
+            .await?
             .into_iter()
             .map(|record| record.domain)
             .collect();
-        let env = sqlx::query_as!(
+        let query = sqlx::query_as!(
             EditedEnvVar,
             "select name, value, edited from env where project = ?",
             project.id
-        )
-        .fetch_all(&self.conn)
-        .await
-        .unwrap();
+        );
+        let env = query.fetch_all(&self.conn).await?;
 
-        Project {
+        Ok(Project {
             id: project.id,
             name: project.name,
             repo_id: project.repo_id,
@@ -294,7 +285,7 @@ impl Db {
             root: project.root,
             prod_id: project.prod_id.0,
             custom_domains,
-        }
+        })
     }
 
     #[tracing::instrument]
@@ -306,34 +297,33 @@ impl Db {
             env,
             root,
         }: InsertProject,
-    ) {
-        // TODO: transform this into a tx
+    ) -> anyhow::Result<()> {
         let id = NanoId::random();
         let created = now();
-        sqlx::query!(
+        let query = sqlx::query!(
             "insert into projects (id, name, repo_id, created, root) values (?, ?, ?, ?, ?)",
             id,
             name,
             repo_id,
             created,
             root
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+
+        let mut tx = self.conn.begin().await?;
+        query.execute(&mut *tx).await?;
         let edited = now();
         for env in env {
-            sqlx::query!(
+            let query = sqlx::query!(
                 "insert into env (name, value, edited, project) values (?, ?, ?, ?)",
                 env.name,
                 env.value,
                 edited,
                 id,
-            )
-            .execute(&self.conn)
-            .await
-            .unwrap();
+            );
+            query.execute(&mut *tx).await?;
         }
+        tx.commit().await?;
+        Ok(())
     }
 
     #[tracing::instrument]
@@ -344,46 +334,46 @@ impl Db {
             name,
             custom_domains,
         }: UpdateProject,
-    ) {
+    ) -> anyhow::Result<()> {
         if let Some(name) = name {
-            sqlx::query!("update projects set name = ? where id = ?", name, id)
-                .execute(&self.conn)
-                .await
-                .unwrap();
+            let query = sqlx::query!("update projects set name = ? where id = ?", name, id);
+            query.execute(&self.conn).await?;
         }
 
         if let Some(custom_domains) = custom_domains {
-            let mut tx = self.conn.begin().await.unwrap();
-            sqlx::query!("delete from domains WHERE project = ?", id)
-                .execute(&mut *tx)
-                .await
-                .unwrap();
+            let mut tx = self.conn.begin().await?;
+            let query = sqlx::query!("delete from domains WHERE project = ?", id);
+            query.execute(&mut *tx).await?;
             for domain in custom_domains {
-                sqlx::query!(
+                let query = sqlx::query!(
                     "insert into domains (domain, project) values (?, ?)",
                     domain,
                     id
-                )
-                .execute(&mut *tx)
-                .await
-                .unwrap();
+                );
+                query.execute(&mut *tx).await?;
             }
-            tx.commit().await.unwrap();
+            tx.commit().await?;
         }
+
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn delete_project(&self, id: &NanoId) {
-        sqlx::query!("delete from projects where id = ?", id)
-            .execute(&self.conn)
-            .await
-            .unwrap();
+    pub(crate) async fn delete_project(&self, id: &NanoId) -> anyhow::Result<()> {
+        let query = sqlx::query!("delete from projects where id = ?", id);
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn upsert_env(&self, project: &NanoId, name: &str, value: &str) {
+    pub(crate) async fn upsert_env(
+        &self,
+        project: &NanoId,
+        name: &str,
+        value: &str,
+    ) -> anyhow::Result<()> {
         let edited = now();
-        sqlx::query!(
+        let query = sqlx::query!(
             "insert into env (project, name, value, edited) values (?, ?, ?, ?) on conflict (name, project) do update set value=?, edited=?",
             project,
             name,
@@ -391,22 +381,20 @@ impl Db {
             edited,
             value,
             edited,
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn delete_env(&self, project: &NanoId, name: &str) {
-        sqlx::query!(
+    pub(crate) async fn delete_env(&self, project: &NanoId, name: &str) -> anyhow::Result<()> {
+        let query = sqlx::query!(
             "delete from env where project = ? and name = ?",
             project,
             name
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
@@ -423,9 +411,8 @@ impl Db {
         .await?;
 
         if let Some(plain_deployment) = plain_deployment {
-            Ok(Some(
-                self.append_extra_deployment_info(plain_deployment).await?,
-            ))
+            let deployment = self.append_extra_deployment_info(plain_deployment).await?;
+            Ok(Some(deployment))
         } else {
             Ok(None)
         }
@@ -440,14 +427,10 @@ impl Db {
         )
         .fetch_all(&self.conn)
         .await?;
-
-        Ok(stream::iter(deployments)
-            .filter_map(|deployment| async {
-                let result = self.append_extra_deployment_info(deployment).await;
-                result.inspect_err(|e| panic!("{e}")).ok() // TODO: stop filtering, return error instead
-            })
-            .collect()
-            .await)
+        stream::iter(deployments)
+            .then(|deployment| self.append_extra_deployment_info(deployment))
+            .try_collect()
+            .await
     }
 
     #[tracing::instrument]
@@ -461,19 +444,13 @@ impl Db {
             deployment.id
         )
         .fetch_all(&self.conn)
-        .await
-        .unwrap();
-
-        let flat = FlatDeploymentConfig {
+        .await?;
+        let config = FlatDeploymentConfig {
             visibility: deployment.config_visibility, // TODO: maybe move this conversion into From<FlatDeploymentConfig>
             backend: deployment.config_build_backend,
             dockerfile_path: deployment.config_dockerfile_path,
-        };
-        let config = flat
-            .clone()
-            .try_into()
-            .inspect_err(|e| panic!("{flat:?}\n{e}"));
-
+        }
+        .try_into()?;
         Ok(Deployment {
             id: deployment.id,
             url_id: deployment.slug,
@@ -486,17 +463,16 @@ impl Db {
             build_started: deployment.build_started,
             build_finished: deployment.build_finished,
             project: deployment.project,
-            config: config?,
+            config,
             env,
         })
     }
 
     #[tracing::instrument]
-    pub(crate) async fn delete_deployment(&self, id: &NanoId) {
-        sqlx::query!("update deployments set deleted = 1 where id = ?", id)
-            .execute(&self.conn)
-            .await
-            .unwrap();
+    pub(crate) async fn delete_deployment(&self, id: &NanoId) -> anyhow::Result<()> {
+        let query = sqlx::query!("update deployments set deleted = 1 where id = ?", id);
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     // TODO: implement this using SQL
@@ -523,15 +499,12 @@ impl Db {
     ) -> anyhow::Result<Option<DeploymentWithProject>> {
         let deployment = self.get_deployment(deployment).await?;
         if let Some(deployment) = deployment {
-            let project = self.get_project(&deployment.project).await;
-            if let Some(project) = project {
-                Ok(Some(DeploymentWithProject {
-                    project: project.into(),
-                    deployment,
-                }))
-            } else {
-                Ok(None) // FIXME: return error if project does not exist????????????
-            }
+            let project = self.get_project(&deployment.project).await?;
+            let deployment_with_project = project.map(|project| DeploymentWithProject {
+                project: project.into(),
+                deployment,
+            });
+            Ok(deployment_with_project) // FIXME: return error if project does not exist????????????
         } else {
             Ok(None)
         }
@@ -541,7 +514,7 @@ impl Db {
     pub(crate) async fn get_deployments_with_project(
         &self,
     ) -> anyhow::Result<impl Iterator<Item = DeploymentWithProject>> {
-        let project_iter = self.get_projects().await.into_iter();
+        let project_iter = self.get_projects().await?.into_iter();
         let projects: HashMap<_, Arc<_>> = project_iter
             .map(|project| (project.id.clone(), project.into()))
             .collect();
@@ -566,7 +539,7 @@ impl Db {
         let created = now();
         let id = NanoId::random();
         let url_id = create_deployment_url_id();
-        sqlx::query!(
+        let insert_query = sqlx::query!(
             "insert into deployments (id, slug, timestamp, created, sha, branch, default_branch, project, result, config_visibility, config_build_backend, config_dockerfile_path) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             url_id,
@@ -580,76 +553,86 @@ impl Db {
             config.visibility,
             config.backend,
             config.dockerfile_path,
-        )
-        .execute(&self.conn)
-        .await?;
+        );
+
+        let mut tx = self.conn.begin().await?;
+        insert_query.execute(&mut *tx).await?;
         for var in deployment.env {
-            sqlx::query!(
+            let var_insert = sqlx::query!(
                 "insert into deployment_env (name, value, deployment) values (?, ?, ?)",
                 var.name,
                 var.value,
                 id,
-            )
-            .execute(&self.conn)
-            .await
-            .unwrap(); // TODO: do this query in a single transaction with the one above
+            );
+            var_insert.execute(&mut *tx).await?;
         }
+        tx.commit().await?;
+
         Ok(id)
     }
 
     #[tracing::instrument]
-    pub(crate) async fn update_deployment_result(&self, id: &NanoId, status: BuildResult) {
-        sqlx::query!("update deployments set result = ? where id = ?", status, id)
-            .execute(&self.conn)
-            .await
-            .unwrap();
+    pub(crate) async fn update_deployment_result(
+        &self,
+        id: &NanoId,
+        status: BuildResult,
+    ) -> anyhow::Result<()> {
+        let query = sqlx::query!("update deployments set result = ? where id = ?", status, id);
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn update_deployment_build_start(&self, id: &NanoId, build_started: i64) {
-        sqlx::query!(
+    pub(crate) async fn update_deployment_build_start(
+        &self,
+        id: &NanoId,
+        build_started: i64,
+    ) -> anyhow::Result<()> {
+        let query = sqlx::query!(
             "update deployments set build_started = ? where id = ?",
             build_started,
             id
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn update_deployment_build_end(&self, id: &NanoId, build_finished: i64) {
-        sqlx::query!(
+    pub(crate) async fn update_deployment_build_end(
+        &self,
+        id: &NanoId,
+        build_finished: i64,
+    ) -> anyhow::Result<()> {
+        let query = sqlx::query!(
             "update deployments set build_finished = ? where id = ?",
             build_finished,
             id
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn reset_deployment_build_end(&self, id: &NanoId) {
-        sqlx::query!(
+    pub(crate) async fn reset_deployment_build_end(&self, id: &NanoId) -> anyhow::Result<()> {
+        let query = sqlx::query!(
             "update deployments set build_finished = NULL where id = ?",
             id
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn get_deployment_build_logs(&self, deployment: &NanoId) -> Vec<BuildLog> {
-        sqlx::query_as!(
+    pub(crate) async fn get_deployment_build_logs(
+        &self,
+        deployment: &NanoId,
+    ) -> anyhow::Result<Vec<BuildLog>> {
+        let query = sqlx::query_as!(
             BuildLog,
             r#"select * from build where build.deployment = ?"#,
             deployment
-        )
-        .fetch_all(&self.conn)
-        .await
-        .unwrap()
+        );
+        Ok(query.fetch_all(&self.conn).await?)
     }
 
     #[tracing::instrument]
@@ -658,39 +641,41 @@ impl Db {
         deployment: &NanoId,
         content: &str,
         error: bool,
-    ) {
+    ) -> anyhow::Result<()> {
         let time = now();
         let error = error as i64;
-        sqlx::query!(
+        let query = sqlx::query!(
             "insert into build (timestamp, content, error, deployment) values (?, ?, ?, ?)",
             time,
             content,
             error,
             deployment
-        )
-        .execute(&self.conn)
-        .await
-        .unwrap();
+        );
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn clear_deployment_build_logs(&self, deployment: &NanoId) {
-        sqlx::query!("delete from build where build.deployment = ?", deployment)
-            .execute(&self.conn)
-            .await
-            .unwrap();
+    pub(crate) async fn clear_deployment_build_logs(
+        &self,
+        deployment: &NanoId,
+    ) -> anyhow::Result<()> {
+        let query = sqlx::query!("delete from build where build.deployment = ?", deployment);
+        query.execute(&self.conn).await?;
+        Ok(())
     }
 
     #[tracing::instrument]
-    pub(crate) async fn hash_exists_for_project(&self, sha: &str, project: &NanoId) -> bool {
-        sqlx::query!(
+    pub(crate) async fn hash_exists_for_project(
+        &self,
+        sha: &str,
+        project: &NanoId,
+    ) -> anyhow::Result<bool> {
+        let query = sqlx::query!(
             "select id from deployments where deployments.sha=? and deployments.project=?",
             sha,
             project
-        )
-        .fetch_optional(&self.conn)
-        .await
-        .unwrap()
-        .is_some()
+        );
+        Ok(query.fetch_optional(&self.conn).await?.is_some())
     }
 }

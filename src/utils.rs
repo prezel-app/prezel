@@ -28,3 +28,18 @@ impl PlusHttps for String {
         format!("https://{self}")
     }
 }
+
+pub(crate) trait LogError {
+    fn log_error(self) -> Self;
+    fn ignore_logging(self);
+}
+
+impl<T, E: std::fmt::Display> LogError for Result<T, E> {
+    fn log_error(self) -> Self {
+        self.inspect_err(|e| tracing::error!("{e}"))
+    }
+
+    fn ignore_logging(self) {
+        let _ = self.inspect_err(|e| tracing::error!("{e}"));
+    }
+}

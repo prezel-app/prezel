@@ -1,5 +1,3 @@
-use std::env;
-
 use actix_web::{get, post, web::Json, HttpResponse, Responder};
 use anyhow::ensure;
 use tracing::error;

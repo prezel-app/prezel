@@ -12,6 +12,7 @@ use file_rotate::{
     ContentLimit, FileRotate,
 };
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 
 use crate::{
@@ -142,7 +143,9 @@ impl RequestLogger {
 
             for event in receiver {
                 let encoded: Vec<u8> = bincode::serialize(&event).unwrap();
-                log.write_all(encoded.as_slice());
+                let _ = log
+                    .write_all(encoded.as_slice())
+                    .inspect_err(|e| error!("{e}"));
             }
         });
 
@@ -154,7 +157,7 @@ impl RequestLogger {
 
     pub(crate) fn log(&self, event: RequestLog) {
         if let Some(sender) = &self.sender {
-            sender.send(event);
+            let _ = sender.send(event);
         }
     }
 }

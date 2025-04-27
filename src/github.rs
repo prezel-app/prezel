@@ -10,7 +10,7 @@ use octocrab::{
         repos::Commitish,
     },
     repos::GetContentBuilder,
-    Error as OctoError, GitHubError, Octocrab,
+    Error as OctoError, Octocrab,
 };
 use std::{collections::HashMap, io::Cursor, path::Path, sync::Arc};
 use tar::Archive;
@@ -180,7 +180,7 @@ impl Github {
     pub(crate) async fn allocate_bot(&self) -> GithubBot {
         GithubBot {
             github: self.clone(),
-            guard: self.bot_mutex.lock().await,
+            _guard: self.bot_mutex.lock().await,
         }
     }
 }
@@ -223,7 +223,9 @@ async fn download_commit_from_ref(
                 let builder = repo.get_content().path(&submodule_path).r#ref(&sha);
                 if let Some(repo_ref) = parse_submodule(builder).await {
                     let absolute_path = path.join(submodule_path);
-                    Box::pin(download_commit_from_ref(crab, repo_ref, &absolute_path)).await;
+                    // if some repo is not accessible, we just assume is fine not downloading it
+                    let _ =
+                        Box::pin(download_commit_from_ref(crab, repo_ref, &absolute_path)).await;
                 }
             }
         }
@@ -256,7 +258,7 @@ async fn parse_submodule<'octo, 'r>(builder: GetContentBuilder<'octo, 'r>) -> Op
 #[derive(Debug)]
 pub(crate) struct GithubBot<'a> {
     github: Github,
-    guard: MutexGuard<'a, ()>,
+    _guard: MutexGuard<'a, ()>,
 }
 
 impl<'a> GithubBot<'a> {

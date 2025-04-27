@@ -6,3 +6,6 @@ ALTER TABLE deployments
 
 ALTER TABLE deployments
     ADD COLUMN config_dockerfile_path TEXT;
+
+UPDATE deployments
+    SET config_visibility = 'private';

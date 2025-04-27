@@ -3,10 +3,22 @@ use std::path::{Component, PathBuf};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    db::config::{BuildBackend, Visibility},
-    Github,
-};
+use crate::Github;
+
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Visibility {
+    Standard,
+    Public,
+    Private,
+}
+
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum BuildBackend {
+    Dockerfile,
+    Nixpacks,
+}
 
 // TODO: move this to the db mod maybe???
 
@@ -149,7 +161,8 @@ async fn fetch_from_path(
 
 #[cfg(test)]
 mod config_tests {
-    use crate::db::config::Visibility;
+
+    use crate::deployments::config::Visibility;
 
     use super::{Build, DeploymentConfig, FlatDeploymentConfig};
 
@@ -185,11 +198,6 @@ mod config_tests {
             }),
         };
         let flat: FlatDeploymentConfig = config.clone().into();
-
-        dbg!(&flat.backend);
-
-        panic!("");
-
         let back: DeploymentConfig = flat.try_into().unwrap();
         assert_eq!(config, back);
     }

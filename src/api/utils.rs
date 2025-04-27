@@ -80,33 +80,21 @@ pub(super) async fn get_all_deployments(
     Ok(deployments)
 }
 
-pub(crate) async fn clone_deployment(
-    db: &Db,
-    deployment_id: &NanoId,
-) -> anyhow::Result<Option<()>> {
-    let deployment = db.get_deployment(deployment_id).await?;
-
-    if let Some(deployment) = deployment {
-        if let Some(project) = db.get_project(&deployment.project).await {
-            let insert = InsertDeployment {
-                env: project.env.clone(),
-                sha: deployment.sha.clone(),
-                branch: deployment.branch.clone(),
-                default_branch: deployment.default_branch,
-                timestamp: deployment.timestamp,
-                project: deployment.project,
-                result: None,
-            };
-            db.insert_deployment(insert, deployment.config.into())
-                .await
-                .unwrap(); // this is only called from the api
-            Ok(Some(()))
-        } else {
-            Ok(None)
-        }
-    } else {
-        Ok(None)
-    }
+pub(crate) async fn clone_deployment(db: &Db, deployment_id: &NanoId) {
+    let deployment = db.get_deployment(deployment_id).await.unwrap().unwrap();
+    let project = db.get_project(&deployment.project).await.unwrap().unwrap();
+    let insert = InsertDeployment {
+        env: project.env.clone(),
+        sha: deployment.sha.clone(),
+        branch: deployment.branch.clone(),
+        default_branch: deployment.default_branch,
+        timestamp: deployment.timestamp,
+        project: deployment.project,
+        result: None,
+    };
+    db.insert_deployment(insert, deployment.config.into())
+        .await
+        .unwrap();
 }
 
 pub(super) fn is_app_name_valid(name: &str) -> bool {
