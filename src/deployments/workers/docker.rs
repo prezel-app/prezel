@@ -16,10 +16,12 @@ pub(crate) struct DockerWorker {
 impl Worker for DockerWorker {
     fn work(&self) -> impl std::future::Future<Output = ()> + Send {
         async {
-            for container in list_managed_container_names().await.unwrap() {
-                if !self.is_container_in_use(&container).await {
-                    stop_container(&container).await.ignore_logging();
-                    delete_container(&container).await.ignore_logging();
+            if let Ok(container_names) = list_managed_container_names().await {
+                for container in container_names {
+                    if !self.is_container_in_use(&container).await {
+                        stop_container(&container).await.ignore_logging();
+                        delete_container(&container).await.ignore_logging();
+                    }
                 }
             }
             // TODO: remove all the images that are not in use.
