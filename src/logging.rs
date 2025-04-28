@@ -12,12 +12,14 @@ use file_rotate::{
     ContentLimit, FileRotate,
 };
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 
 use crate::{
     db::{nano_id::NanoId, BuildLog},
     docker::{DockerLog, LogType},
     paths::get_log_dir,
+    utils::LogError,
 };
 
 const LOG_FILE_PREFIX: &str = "log";
@@ -142,7 +144,7 @@ impl RequestLogger {
 
             for event in receiver {
                 let encoded: Vec<u8> = bincode::serialize(&event).unwrap();
-                log.write_all(encoded.as_slice());
+                log.write_all(encoded.as_slice()).ignore_logging();
             }
         });
 
@@ -154,7 +156,7 @@ impl RequestLogger {
 
     pub(crate) fn log(&self, event: RequestLog) {
         if let Some(sender) = &self.sender {
-            sender.send(event);
+            sender.send(event).ignore_logging();
         }
     }
 }

@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use futures::StreamExt;
 use pingora::tls;
 use tokio::sync::RwLock;
 
@@ -11,6 +10,7 @@ use crate::{
     label::Label,
     sqlite_db::SqliteDbSetup,
     tls::{CertificateStore, TlsState},
+    utils::LogError,
 };
 
 use super::{
@@ -210,7 +210,8 @@ impl Manager {
             .write()
             .await
             .read_db_and_build_updates(&self.build_worker, &self.github, &self.db)
-            .await;
+            .await
+            .ignore_logging();
         self.build_worker.trigger();
         self.docker_worker.trigger();
         self.files_worker.trigger();

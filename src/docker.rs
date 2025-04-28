@@ -18,10 +18,9 @@ use nanoid::nanoid;
 use serde::Serialize;
 use std::{
     error::Error,
-    future::{self, Future},
+    future::Future,
     net::Ipv4Addr,
     path::{Path, PathBuf},
-    pin::Pin,
 };
 use utoipa::ToSchema;
 
@@ -230,6 +229,7 @@ pub(crate) async fn build_dockerfile<
 >(
     name: ImageName,
     path: &Path,
+    dockerfile: String,
     buildargs: EnvVars,
     process_chunk: &mut F,
 ) -> anyhow::Result<String> {
@@ -245,6 +245,7 @@ pub(crate) async fn build_dockerfile<
     let mut build_stream = docker.build_image(
         BuildImageOptions {
             t: name.clone(),
+            dockerfile,
             buildargs: buildargs.into(),
             rm: true,
             forcerm: true, // rm intermediate containers even if the build fails
@@ -310,7 +311,7 @@ pub(crate) async fn list_managed_container_names() -> anyhow::Result<impl Iterat
 
 #[cfg(test)]
 mod docker_tests {
-    use crate::docker::{create_container, get_bollard_container_ipv4, run_container};
+    // use crate::docker::{create_container, get_bollard_container_ipv4, run_container};
 
     // #[tokio::test]
     // async fn test_list_containers() {

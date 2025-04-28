@@ -39,7 +39,7 @@ async fn main() {
     let conf = Conf::read();
     let cloned_conf = conf.clone();
 
-    let db = Db::setup().await;
+    let db = Db::setup().await.unwrap();
     let github = Github::new().await;
 
     provider::setup_ip_address().await.unwrap();

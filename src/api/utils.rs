@@ -11,7 +11,8 @@ use super::{ApiDeployment, AppState};
 pub(super) async fn get_prod_deployment_id(db: &Db, project: &Project) -> Option<NanoId> {
     let latest_deployment = db
         .get_latest_successful_prod_deployment_for_project(&project.id)
-        .await;
+        .await
+        .unwrap();
     project
         .prod_id
         .clone()
@@ -26,7 +27,10 @@ pub(super) async fn get_prod_deployment(
 ) -> Option<ApiDeployment> {
     let box_domain = &manager.box_domain;
     let deployment = manager.get_prod_deployment(project).await?;
-    let db_deployment = db.get_deployment_with_project(&deployment.id).await?;
+    let db_deployment = db
+        .get_deployment_with_project(&deployment.id)
+        .await
+        .unwrap()?;
     let is_prod = true;
     Some(
         ApiDeployment::from(
@@ -49,7 +53,7 @@ pub(super) async fn get_all_deployments(
 ) -> Vec<ApiDeployment> {
     let box_domain = &manager.box_domain;
 
-    let db_deployments = db.get_deployments_with_project().await;
+    let db_deployments = db.get_deployments_with_project().await.unwrap();
     let mut deployments: Vec<_> =
         stream::iter(db_deployments.filter(|deployment| &deployment.deployment.project == project))
             .then(|db_deployment| async move {
@@ -76,10 +80,9 @@ pub(super) async fn get_all_deployments(
     deployments
 }
 
-pub(crate) async fn clone_deployment(db: &Db, deployment_id: &NanoId) -> Option<()> {
-    let deployment = db.get_deployment(deployment_id).await?;
-    let project = db.get_project(&deployment.project).await?;
-
+pub(super) async fn clone_deployment(db: &Db, deployment_id: &NanoId) {
+    let deployment = db.get_deployment(deployment_id).await.unwrap().unwrap();
+    let project = db.get_project(&deployment.project).await.unwrap().unwrap();
     let insert = InsertDeployment {
         env: project.env.clone(),
         sha: deployment.sha.clone(),
@@ -87,9 +90,11 @@ pub(crate) async fn clone_deployment(db: &Db, deployment_id: &NanoId) -> Option<
         default_branch: deployment.default_branch,
         timestamp: deployment.timestamp,
         project: deployment.project,
+        result: None,
     };
-    db.insert_deployment(insert).await.unwrap(); // this is only called from the api
-    Some(())
+    db.insert_deployment(insert, deployment.config.into())
+        .await
+        .unwrap();
 }
 
 pub(super) fn is_app_name_valid(name: &str) -> bool {

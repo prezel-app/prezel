@@ -57,29 +57,32 @@ impl StatusHooks {
 #[async_trait]
 impl DeploymentHooks for StatusHooks {
     async fn on_build_log(&self, output: &str, error: bool) {
-        self.db
+        let _ = self
+            .db
             .insert_deployment_build_log(&self.id, output, error) // TODO: differentiate error logs
             .await;
     }
 
     async fn on_build_started(&self) {
-        self.db.clear_deployment_build_logs(&self.id).await;
-        self.db.update_deployment_build_start(&self.id, now()).await;
-        self.db.reset_deployment_build_end(&self.id).await;
+        let _ = self.db.clear_deployment_build_logs(&self.id).await;
+        let _ = self.db.update_deployment_build_start(&self.id, now()).await;
+        let _ = self.db.reset_deployment_build_end(&self.id).await;
         self.update_github(Status::Building);
     }
 
     async fn on_build_finished(&self) {
-        self.db.update_deployment_build_end(&self.id, now()).await;
-        self.db
+        let _ = self.db.update_deployment_build_end(&self.id, now()).await;
+        let _ = self
+            .db
             .update_deployment_result(&self.id, BuildResult::Built) // FIXME: the db should maybe only have a flag error: bool
             .await;
         self.update_github(Status::Ready);
     }
 
     async fn on_build_failed(&self) {
-        self.db.update_deployment_build_end(&self.id, now()).await;
-        self.db
+        let _ = self.db.update_deployment_build_end(&self.id, now()).await;
+        let _ = self
+            .db
             .update_deployment_result(&self.id, BuildResult::Failed)
             .await;
         self.update_github(Status::Failed);
@@ -119,6 +122,7 @@ impl StatusHooks {
                 .db
                 .get_deployment_with_project(&hooks.id)
                 .await
+                .unwrap()
                 .unwrap();
             let repo_id = deployment.project.repo_id;
             let prs = hooks.github.get_open_pulls(repo_id).await.unwrap();
@@ -149,12 +153,13 @@ impl StatusHooks {
                                 HashMap::from([(project_name.clone(), app_comment)])
                             };
                         let content = create_comment(updated_info, &secret); // TODO: this
-                        bot.update_pull_comment(repo_id, pr.number, comment.id, &content)
+                        let _ = bot
+                            .update_pull_comment(repo_id, pr.number, comment.id, &content)
                             .await;
                     } else {
                         let info = HashMap::from([(project_name.clone(), app_comment)]);
                         let content = create_comment(info, &secret);
-                        bot.create_pull_comment(repo_id, pr.number, &content).await;
+                        let _ = bot.create_pull_comment(repo_id, pr.number, &content).await;
                     };
 
                     let (status, conclusion) = match status {

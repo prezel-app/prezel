@@ -1,10 +1,8 @@
 use std::future::Future;
-use std::path::{Component, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::{stream, Stream, StreamExt};
-use serde::Deserialize;
 
 use crate::container::commit::CommitContainer;
 use crate::container::ContainerStatus;
@@ -18,6 +16,7 @@ use crate::{
     github::Github,
 };
 
+use super::config::Visibility;
 use super::worker::WorkerHandle;
 
 #[derive(Debug, Clone)]
@@ -32,40 +31,6 @@ pub(crate) struct Deployment {
     pub(crate) created: i64,
     pub(crate) forced_prod: bool, // TODO: review if im using this
     pub(crate) app_container: Arc<Container>, // FIXME: try to remove Arc, only needed to make access to socket/public generic
-}
-
-#[derive(Deserialize, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-enum Visibility {
-    Standard,
-    Public,
-    Private,
-}
-
-#[derive(Deserialize, Default)]
-struct DeploymentConfig {
-    visibility: Option<Visibility>,
-}
-
-impl DeploymentConfig {
-    // FIXME: if there's just a network problem, I might interpret as there is no file
-    // and make the prod deployment public when it was indeed set to private in the repo
-    async fn fetch_from_repo(github: &Github, repo_id: i64, sha: &str, root: &str) -> Option<Self> {
-        let conf_path = PathBuf::from(root).join("prezel.json");
-        let valid_components = conf_path
-            .components()
-            .filter(|comp| !matches!(comp, Component::CurDir));
-        let valid_path: PathBuf = valid_components.collect();
-        let content = github
-            .download_file(repo_id, &sha, valid_path.to_str()?)
-            .await
-            .ok()?;
-        serde_json::from_str(&content).ok()
-    }
-
-    fn get_visibility(&self) -> Visibility {
-        self.visibility.clone().unwrap_or(Visibility::Standard)
-    }
 }
 
 impl Deployment {
@@ -106,13 +71,11 @@ impl Deployment {
             url_id,
             timestamp,
             created,
+            config,
             ..
         } = deployment;
 
-        let conf = DeploymentConfig::fetch_from_repo(&github, project.repo_id, &sha, &project.root)
-            .await
-            .unwrap_or_default();
-        let is_public = match conf.get_visibility() {
+        let is_public = match config.get_visibility() {
             Visibility::Standard => default_branch,
             Visibility::Public => true,
             Visibility::Private => false,
@@ -148,6 +111,7 @@ impl Deployment {
             &db_url,
             inistial_status,
             build_result,
+            config,
         );
 
         let forced_prod = project

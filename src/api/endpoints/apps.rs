@@ -28,7 +28,7 @@ use crate::{
 #[get("/api/apps")]
 #[tracing::instrument]
 async fn get_projects(auth: AnyRole, state: Data<AppState>) -> impl Responder {
-    let projects = state.db.get_projects().await;
+    let projects = state.db.get_projects().await.unwrap();
     let db_access = auth.0.role.get_db_access();
     let projects_with_deployments = projects.into_iter().map(|project| {
         let state = state.clone();
@@ -64,7 +64,7 @@ async fn get_projects(auth: AnyRole, state: Data<AppState>) -> impl Responder {
 #[tracing::instrument]
 async fn get_project(auth: AnyRole, state: Data<AppState>, name: Path<String>) -> impl Responder {
     let name = name.into_inner();
-    let project = state.db.get_project_by_name(&name).await;
+    let project = state.db.get_project_by_name(&name).await.unwrap();
     let db_access = auth.0.role.get_db_access();
     match project {
         Some(project) => {
@@ -105,7 +105,7 @@ async fn create_project(
     state: Data<AppState>,
 ) -> impl Responder {
     if is_app_name_valid(&project.name) {
-        state.db.insert_project(project.0).await;
+        state.db.insert_project(project.0).await.unwrap();
         state.manager.full_sync_with_github().await;
         HttpResponse::Ok()
     } else {
@@ -140,7 +140,7 @@ async fn update_project(
         .is_none_or(|name| is_app_name_valid(name));
     if valid_name {
         let id = id.into_inner().into();
-        state.db.update_project(&id, project.0).await;
+        state.db.update_project(&id, project.0).await.unwrap();
         state.manager.sync_with_db().await; // TODO: review if its fine not doing a full sync with github here
         HttpResponse::Ok()
     } else {
@@ -164,7 +164,11 @@ async fn delete_project(
     state: Data<AppState>,
     id: Path<String>,
 ) -> impl Responder {
-    state.db.delete_project(&id.into_inner().into()).await;
+    state
+        .db
+        .delete_project(&id.into_inner().into())
+        .await
+        .unwrap();
     state.manager.sync_with_db().await;
     HttpResponse::Ok()
 }
@@ -183,7 +187,7 @@ async fn delete_project(
 #[tracing::instrument]
 async fn get_env(auth: AdminRole, state: Data<AppState>, id: Path<String>) -> impl Responder {
     let id = id.into_inner().into();
-    match state.db.get_project(&id).await {
+    match state.db.get_project(&id).await.unwrap() {
         Some(project) => HttpResponse::Ok().json(project.env),
         None => HttpResponse::NotFound().json(ErrorResponse::NotFound(format!("id = {id}"))),
     }
@@ -208,7 +212,11 @@ async fn upsert_env(
     id: Path<String>,
 ) -> impl Responder {
     let id = id.into_inner().into();
-    state.db.upsert_env(&id, &env.0.name, &env.0.value).await;
+    state
+        .db
+        .upsert_env(&id, &env.0.name, &env.0.value)
+        .await
+        .unwrap();
     // state.manager.sync_with_db().await; // TODO: review if its fine not calling sync here
     HttpResponse::Ok()
 }
@@ -229,7 +237,11 @@ async fn delete_env(
     state: Data<AppState>,
     path: Path<(String, String)>,
 ) -> impl Responder {
-    state.db.delete_env(&(path.0.clone().into()), &path.1).await;
+    state
+        .db
+        .delete_env(&(path.0.clone().into()), &path.1)
+        .await
+        .unwrap();
     // state.manager.sync_with_db().await; // TODO: review if its fine not calling sync here
     HttpResponse::Ok()
 }

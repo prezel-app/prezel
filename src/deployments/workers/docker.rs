@@ -5,6 +5,7 @@ use futures::StreamExt;
 use crate::{
     deployments::{manager::InstrumentedRwLock, map::DeploymentMap, worker::Worker},
     docker::{delete_container, list_managed_container_names, stop_container},
+    utils::LogError,
 };
 
 #[derive(Debug)]
@@ -15,10 +16,12 @@ pub(crate) struct DockerWorker {
 impl Worker for DockerWorker {
     fn work(&self) -> impl std::future::Future<Output = ()> + Send {
         async {
-            for container in list_managed_container_names().await.unwrap() {
-                if !self.is_container_in_use(&container).await {
-                    stop_container(&container).await;
-                    delete_container(&container).await;
+            if let Ok(container_names) = list_managed_container_names().await {
+                for container in container_names {
+                    if !self.is_container_in_use(&container).await {
+                        stop_container(&container).await.ignore_logging();
+                        delete_container(&container).await.ignore_logging();
+                    }
                 }
             }
             // TODO: remove all the images that are not in use.

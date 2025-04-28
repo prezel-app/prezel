@@ -2,7 +2,6 @@ use std::{future::Future, sync::Arc};
 
 use futures::StreamExt;
 use rand::seq::SliceRandom;
-use tracing::error;
 
 use crate::{
     container::{Container, ContainerStatus},
@@ -13,6 +12,7 @@ use crate::{
         worker::{Worker, WorkerHandle},
     },
     github::Github,
+    utils::LogError,
 };
 
 #[derive(Clone, Debug)]
@@ -30,17 +30,16 @@ impl Worker for BuildWorker {
         async {
             loop {
                 if let Some(container) = self.get_container_to_build().await {
-                    let result = container.setup_as_standby().await;
-                    if let Err(error) = result {
-                        error!("got error when setting up a container: {error}")
-                    }
-
+                    container.setup_as_standby().await.ignore_logging();
                     // we call this because the container we just built might be promoted to be the prod one
                     self.map
                         .write()
                         .await
                         .read_db_and_build_updates(&self.build_queue, &self.github, &self.db)
-                        .await;
+                        .await
+                        .ignore_logging();
+                    // FIXME: this might produce and infinite loop if setup_as_standby always fails
+                    // at least should chose a differnet container every time, to avoid starvation
                 } else {
                     break;
                 }

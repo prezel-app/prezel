@@ -1,5 +1,3 @@
-use std::time::UNIX_EPOCH;
-
 use actix_web::{get, web::Data, HttpResponse, Responder};
 use openssl::{asn1::Asn1Time, nid::Nid};
 use pingora::tls;
