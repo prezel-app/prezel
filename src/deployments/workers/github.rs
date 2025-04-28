@@ -4,6 +4,7 @@ use crate::{
     db::{Db, InsertDeployment, Project},
     deployments::{config::DeploymentConfig, worker::Worker},
     github::{Commit, Github},
+    utils::LogError,
 };
 
 #[derive(Clone, Debug)]
@@ -47,7 +48,8 @@ impl GithubWorker {
                         result: None,
                     };
                     self.add_deployment_to_db_if_missing(deployment, repo_id, &root, &name)
-                        .await;
+                        .await
+                        .ignore_logging();
                 }
                 Err(error) => error!("{error}"),
             }
@@ -71,7 +73,8 @@ impl GithubWorker {
                             result: None,
                         };
                         self.add_deployment_to_db_if_missing(deployment, repo_id, &root, &name)
-                            .await;
+                            .await
+                            .ignore_logging();
                     }
                     Err(error) => error!("{error}"),
                 }
@@ -102,13 +105,12 @@ impl GithubWorker {
         repo_id: i64,
         root: &str,
         app_name: &str,
-    ) {
+    ) -> anyhow::Result<()> {
         let exists = self
             .db
             .hash_exists_for_project(&deployment.sha, &deployment.project)
-            .await
-            .inspect_err(|e| error!("{e}"));
-        if let Ok(false) = exists {
+            .await?;
+        if !exists {
             let (config, error) = match DeploymentConfig::fetch_from_repo(
                 &self.github,
                 repo_id,
@@ -124,19 +126,14 @@ impl GithubWorker {
                     (Default::default(), Some(error))
                 }
             };
-            let id = self
-                .db
-                .insert_deployment(deployment, config.into())
-                .await
-                .inspect_err(|e| error!("{e}"));
-
-            if let (Some(error), Ok(id)) = (error, id) {
-                let _ = self
-                    .db
+            if let Some(error) = error {
+                let id = self.db.insert_deployment(deployment, config.into()).await?;
+                self.db
                     .insert_deployment_build_log(&id, &error.to_string(), true)
                     .await
-                    .inspect_err(|e| error!("{e}"));
+                    .ignore_logging();
             }
         }
+        Ok(())
     }
 }

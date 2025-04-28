@@ -70,9 +70,7 @@ async fn get_project(auth: AnyRole, state: Data<AppState>, name: Path<String>) -
         Some(project) => {
             let prod_deployment_id = get_prod_deployment_id(&state.db, &project).await;
             let prod_deployment = get_prod_deployment(&state, &project.id, db_access).await;
-            let deployments = get_all_deployments(&state, &project.id, db_access)
-                .await
-                .unwrap();
+            let deployments = get_all_deployments(&state, &project.id, db_access).await;
             HttpResponse::Ok().json(FullProjectInfo {
                 name: project.name,
                 id: project.id.into(),

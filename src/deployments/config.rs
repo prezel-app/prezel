@@ -20,8 +20,6 @@ enum BuildBackend {
     Nixpacks,
 }
 
-// TODO: move this to the db mod maybe???
-
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[serde(tag = "backend", content = "config", rename_all = "lowercase")]
 pub(crate) enum Build {
@@ -29,7 +27,6 @@ pub(crate) enum Build {
     Nixpacks { provider: Option<String> },
 }
 
-// TODO: move this somwhere else
 #[derive(Deserialize, Serialize, Default, Debug, PartialEq, Clone)]
 pub(crate) struct DeploymentConfig {
     pub(crate) visibility: Option<Visibility>,

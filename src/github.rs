@@ -133,12 +133,10 @@ impl Github {
                     .map(|content| content.decoded_content().ok_or(anyhow!("invalid content")))
                     .transpose()
             }
-            Err(OctoError::GitHub { source, .. }) => {
-                if source.status_code == StatusCode::NOT_FOUND {
-                    Ok(None)
-                } else {
-                    bail!(source);
-                }
+            Err(OctoError::GitHub { source, .. })
+                if source.status_code == StatusCode::NOT_FOUND =>
+            {
+                Ok(None)
             }
             Err(error) => bail!(error),
         }

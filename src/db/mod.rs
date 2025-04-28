@@ -446,7 +446,7 @@ impl Db {
         .fetch_all(&self.conn)
         .await?;
         let config = FlatDeploymentConfig {
-            visibility: deployment.config_visibility, // TODO: maybe move this conversion into From<FlatDeploymentConfig>
+            visibility: deployment.config_visibility,
             backend: deployment.config_build_backend,
             dockerfile_path: deployment.config_dockerfile_path,
         }

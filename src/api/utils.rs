@@ -50,10 +50,10 @@ pub(super) async fn get_all_deployments(
     AppState { db, manager, .. }: &AppState,
     project: &NanoId,
     access: DbAccess,
-) -> anyhow::Result<Vec<ApiDeployment>> {
+) -> Vec<ApiDeployment> {
     let box_domain = &manager.box_domain;
 
-    let db_deployments = db.get_deployments_with_project().await?;
+    let db_deployments = db.get_deployments_with_project().await.unwrap();
     let mut deployments: Vec<_> =
         stream::iter(db_deployments.filter(|deployment| &deployment.deployment.project == project))
             .then(|db_deployment| async move {
@@ -77,10 +77,10 @@ pub(super) async fn get_all_deployments(
             .collect()
             .await;
     deployments.sort_by_key(|deployment| -deployment.created);
-    Ok(deployments)
+    deployments
 }
 
-pub(crate) async fn clone_deployment(db: &Db, deployment_id: &NanoId) {
+pub(super) async fn clone_deployment(db: &Db, deployment_id: &NanoId) {
     let deployment = db.get_deployment(deployment_id).await.unwrap().unwrap();
     let project = db.get_project(&deployment.project).await.unwrap().unwrap();
     let insert = InsertDeployment {
