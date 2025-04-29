@@ -126,8 +126,8 @@ impl GithubWorker {
                     (Default::default(), Some(error))
                 }
             };
+            let id = self.db.insert_deployment(deployment, config.into()).await?;
             if let Some(error) = error {
-                let id = self.db.insert_deployment(deployment, config.into()).await?;
                 self.db
                     .insert_deployment_build_log(&id, &error.to_string(), true)
                     .await
