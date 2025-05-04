@@ -41,7 +41,6 @@ async fn get_version(_auth: AnyRole) -> impl Responder {
 )]
 #[post("/version")]
 async fn update_version(_auth: AdminRole, version: Json<String>) -> impl Responder {
-    dbg!();
     match run_update_container(&version.0).await {
         Ok(()) => HttpResponse::Ok().finish(),
         Err(error) => {

@@ -8,6 +8,7 @@ pub(crate) enum Label {
     Prod { project: String },
     ProdDb { project: NanoId },
     Deployment { project: String, deployment: String },
+    DeploymentInsert { project: String, deployment: String },
     BranchDb { project: NanoId, deployment: String },
 }
 
@@ -20,6 +21,10 @@ impl Label {
                 project,
                 deployment,
             } => format!("{project}--{deployment}.{box_domain}"),
+            Label::DeploymentInsert {
+                project,
+                deployment,
+            } => format!("{project}--{deployment}-insert.{box_domain}"),
             Label::BranchDb {
                 project,
                 deployment,
@@ -40,6 +45,10 @@ impl Label {
         let parsed = parse_label(label).ok_or(anyhow!("invalid label"))?;
         Ok(parsed)
     }
+
+    pub(crate) fn insert_enabled(&self) -> bool {
+        matches!(self, Self::DeploymentInsert { .. })
+    }
 }
 
 fn parse_label(label: &str) -> Option<Label> {
@@ -53,6 +62,10 @@ fn parse_label(label: &str) -> Option<Label> {
             }),
             [deployment] => Some(Label::Deployment {
                 project: project.to_string(),
+                deployment: deployment.to_string(),
+            }),
+            [deployment, "insert"] => Some(Label::DeploymentInsert {
+                project: project.to_string().into(),
                 deployment: deployment.to_string(),
             }),
             [deployment, "libsql"] => Some(Label::BranchDb {
@@ -77,6 +90,10 @@ mod label_tests {
                 project: "test-project".to_owned(),
             },
             Label::Deployment {
+                project: "test-project".to_owned(),
+                deployment: "3fg6fdhj".to_owned(),
+            },
+            Label::DeploymentInsert {
                 project: "test-project".to_owned(),
                 deployment: "3fg6fdhj".to_owned(),
             },

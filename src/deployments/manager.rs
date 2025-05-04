@@ -127,18 +127,22 @@ impl Manager {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn get_container_by_hostname(&self, hostname: &str) -> Option<Arc<Container>> {
-        let container = self
-            .deployments
-            .read()
-            .await
-            .get_custom_domain(hostname)
-            .map(|deployment| deployment.app_container.clone());
+    pub(crate) async fn get_container_by_hostname(
+        &self,
+        hostname: &str,
+    ) -> Option<(Arc<Container>, bool)> {
+        let container = {
+            let deployments = self.deployments.read().await;
+            let deployment = deployments.get_custom_domain(hostname);
+            deployment.map(|deployment| deployment.app_container.clone())
+        };
         if let Some(container) = container {
-            Some(container)
+            Some((container, false))
         } else {
             let label = Label::strip_from_domain(hostname, &self.box_domain).ok()?;
-            self.get_container_by_label(label).await
+            let insert_enabled = label.insert_enabled();
+            let container = self.get_container_by_label(label).await?;
+            Some((container, insert_enabled))
         }
     }
 
@@ -151,6 +155,10 @@ impl Manager {
                 Some(deployment.app_container.clone())
             }
             Label::Deployment {
+                project,
+                deployment,
+            }
+            | Label::DeploymentInsert {
                 project,
                 deployment,
             } => {
