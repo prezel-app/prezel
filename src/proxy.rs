@@ -361,7 +361,7 @@ pub(crate) fn run_proxy(manager: Manager, config: Conf, store: CertificateStore)
     let mut server = Server::new(None).unwrap();
     server.bootstrap();
     let provider = &config.provider;
-    let injection_script = format!(r#"<script src="{provider}/intercom.js"></script></body>"#);
+    let injection_script = format!(r#"<script src="{provider}/url-forwarder.js"></script></body>"#);
     let injection_script_pattern = "</body>".to_owned();
     let injection_script_extra_len = injection_script.len() - injection_script_pattern.len();
     let proxy_app = ProxyApp {
