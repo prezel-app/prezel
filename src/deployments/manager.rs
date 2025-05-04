@@ -141,8 +141,6 @@ impl Manager {
         } else {
             let label = Label::strip_from_domain(hostname, &self.box_domain).ok()?;
             let insert_enabled = label.insert_enabled();
-            dbg!(&label);
-            dbg!(&insert_enabled);
             let container = self.get_container_by_label(label).await?;
             Some((container, insert_enabled))
         }
