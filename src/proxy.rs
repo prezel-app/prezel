@@ -1,4 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use cookie::Cookie;
@@ -43,6 +44,7 @@ impl Listener for ApiListener {
 struct Peer {
     listener: Box<dyn Listener>,
     deployment_id: Option<NanoId>,
+    insert_enabled: bool,
 }
 
 impl<L: Listener + 'static> From<L> for Peer {
@@ -50,6 +52,7 @@ impl<L: Listener + 'static> From<L> for Peer {
         Peer {
             listener: Box::new(value),
             deployment_id: None,
+            insert_enabled: false,
         }
     }
 }
@@ -58,21 +61,24 @@ struct ProxyApp {
     manager: Manager,
     config: Conf,
     request_logger: RequestLogger,
+    injection_script: String,
+    injection_script_pattern: String,
+    injection_script_extra_len: usize,
 }
 
 impl ProxyApp {
     async fn get_listener_inner(&self, session: &Session) -> Option<Peer> {
         // TODO: try to use session.req_header().uri.host()
         let host = session.get_header(header::HOST)?.to_str().ok()?;
-
         if host == self.config.api_hostname() {
             Some(ApiListener.into())
         } else {
-            let container = self.manager.get_container_by_hostname(host).await?;
+            let (container, insert_enabled) = self.manager.get_container_by_hostname(host).await?;
             let deployment_id = container.logging_deployment_id.clone();
             Some(Peer {
                 listener: Box::new(container),
                 deployment_id,
+                insert_enabled,
             })
         }
     }
@@ -104,6 +110,7 @@ impl ProxyApp {
 #[derive(Default)]
 struct RequestCtx {
     deployment: Option<NanoId>,
+    insert_enabled: bool,
     socket: Option<SocketAddrV4>,
 }
 
@@ -132,10 +139,19 @@ impl ProxyHttp for ProxyApp {
         let Peer {
             listener,
             deployment_id,
+            insert_enabled,
         } = self.get_listener(session).await?;
         ctx.deployment = deployment_id;
+        ctx.insert_enabled = insert_enabled;
 
         if listener.is_public() || self.is_authenticated(session) {
+            if insert_enabled {
+                session
+                    .req_header_mut()
+                    .insert_header(header::ACCEPT_ENCODING, "identity")
+                    .unwrap();
+            }
+
             let access = listener.access().await.map_err(|error| {
                 Error::create(
                     Custom("Failed to aquire socket"),
@@ -191,13 +207,31 @@ impl ProxyHttp for ProxyApp {
         &self,
         session: &mut Session,
         upstream_response: &mut ResponseHeader,
-        _ctx: &mut Self::CTX,
+        ctx: &mut Self::CTX,
     ) -> Result<()>
     where
         Self::CTX: Send + Sync,
     {
         let origin = session.get_header(header::ORIGIN);
         let console = origin.is_some_and(|header| header.to_str().unwrap() == self.config.provider);
+
+        if ctx.insert_enabled {
+            if let Some(contet_type) = upstream_response.headers.get(header::CONTENT_TYPE) {
+                if let Ok(content_type) = contet_type.to_str() {
+                    if content_type == "text/html" || content_type == "text/html; charset=utf-8" {
+                        let header = upstream_response
+                            .headers
+                            .get(header::CONTENT_LENGTH)
+                            .unwrap();
+                        let content_length = header.to_str().unwrap().parse::<usize>().unwrap();
+                        let new_length = content_length + self.injection_script_extra_len;
+                        upstream_response
+                            .insert_header(header::CONTENT_LENGTH, new_length)
+                            .unwrap();
+                    }
+                }
+            }
+        }
 
         if console {
             upstream_response
@@ -207,7 +241,29 @@ impl ProxyHttp for ProxyApp {
                 .insert_header(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
                 .unwrap();
         }
+
         Ok(())
+    }
+
+    fn response_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<Bytes>,
+        _end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<Option<Duration>>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if ctx.insert_enabled {
+            if let Some(bytes) = body {
+                let content = String::from_utf8_lossy(&bytes);
+                let injected =
+                    content.replace(&self.injection_script_pattern, &self.injection_script);
+                body.replace(Bytes::copy_from_slice(injected.as_bytes()));
+            }
+        }
+        Ok(None)
     }
 
     async fn logging(
@@ -304,10 +360,17 @@ pub(crate) fn run_proxy(manager: Manager, config: Conf, store: CertificateStore)
     let request_logger = RequestLogger::new();
     let mut server = Server::new(None).unwrap();
     server.bootstrap();
+    let provider = &config.provider;
+    let injection_script = format!(r#"<script src="{provider}/intercom.js"></script></body>"#);
+    let injection_script_pattern = "</body>".to_owned();
+    let injection_script_extra_len = injection_script.len() - injection_script_pattern.len();
     let proxy_app = ProxyApp {
         manager,
         config,
         request_logger,
+        injection_script,
+        injection_script_pattern,
+        injection_script_extra_len,
     };
     let mut https_service = http_proxy_service(&server.configuration, proxy_app);
     let certificate = store.get_default_certificate();
