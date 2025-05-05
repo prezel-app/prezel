@@ -140,6 +140,7 @@ impl StatusHooks {
                     let app_comment = GithubCommentApp {
                         status,
                         provider_url: format!("{provider}/{team}/{project_name}/{slug}"),
+                        diff_url: format!("{provider}/{team}/{project_name}/{slug}/diff"),
                         preview_url: deployment.get_app_base_url(&hostname),
                         updated: chrono::offset::Utc::now(),
                     };
@@ -192,6 +193,7 @@ struct GithubCommentApp {
     status: Status,
     provider_url: String,
     preview_url: String,
+    diff_url: String,
     updated: DateTime<Utc>,
 }
 
@@ -205,7 +207,7 @@ fn get_comment_info(comment: &Comment, secret: &[u8]) -> Option<GithubCommentInf
 }
 
 fn create_comment(info: GithubCommentInfo, secret: &[u8]) -> String {
-    let rows = info.iter().map(|(name, GithubCommentApp{status, provider_url, preview_url, updated})| {
+    let rows = info.iter().map(|(name, GithubCommentApp{status, provider_url, preview_url, diff_url, updated})| {
         let formatted_status = match status {
             // Status::Queued => "⏳ Queued",
             Status::Building => "🔨 Building",
@@ -213,7 +215,7 @@ fn create_comment(info: GithubCommentInfo, secret: &[u8]) -> String {
             Status::Failed => "❌ Failed",
         };
         let updated = updated.format("%b %e, %Y %l:%M%P").to_string();
-        format!("| **{name}** | {formatted_status} ([Inspect]({provider_url})) | [Visit Preview]({preview_url}) | {updated} |")
+        format!("| **{name}** | {formatted_status} ([Inspect]({provider_url})) | [Visit Preview]({preview_url}) | [See diff]({diff_url}) | {updated} |")
     });
 
     let table_content = rows.collect::<Vec<_>>().join("\n");
@@ -224,8 +226,8 @@ fn create_comment(info: GithubCommentInfo, secret: &[u8]) -> String {
         "[prezel]: {jwt}
 **The latest updates on your projects**. Learn more about [prezel.app ↗︎](https://prezel.app)
 
-| Name | Status | Preview | Updated (UTC) |
-| :--- | :----- | :------ | :------ |
+| Name | Status | Preview | Diff View | Updated (UTC) |
+| :--- | :----- | :------ | :------ | :------ |
 {table_content}"
     )
 }
